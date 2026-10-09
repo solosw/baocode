@@ -2807,6 +2807,70 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSectionGeneral => '通用';
 
   @override
+  String get settingsSectionAgents => 'Agents';
+
+  @override
+  String get settingsSectionSsh => 'SSH';
+
+  @override
+  String get sshSettingsDescription =>
+      '在这里保存的主机会用于打开远程文件夹，不必只依赖 ~/.ssh/config。密码存在系统钥匙串里。';
+
+  @override
+  String get sshSettingsHosts => '主机';
+
+  @override
+  String get sshSettingsHostsDescription => '每台主机可以用密码或私钥登录。用户名和端口可选。';
+
+  @override
+  String get sshSettingsEmpty => '还没有保存的主机';
+
+  @override
+  String get sshSettingsAdd => '添加主机';
+
+  @override
+  String get sshSettingsHost => '主机';
+
+  @override
+  String get sshSettingsHostHint => 'host 或 user@host';
+
+  @override
+  String get sshSettingsUser => '用户';
+
+  @override
+  String get sshSettingsUserHint => '可选';
+
+  @override
+  String get sshSettingsPort => '端口';
+
+  @override
+  String get sshSettingsPassword => '密码';
+
+  @override
+  String get sshSettingsKey => '私钥';
+
+  @override
+  String get sshSettingsKeyPath => '密钥文件';
+
+  @override
+  String get sshSettingsKeyHint => '~/.ssh/id_ed25519';
+
+  @override
+  String get sshSettingsPasswordHint => '保存在钥匙串';
+
+  @override
+  String get sshSettingsPasswordKept => '已保存密码。输入新密码可替换。';
+
+  @override
+  String get sshSettingsSave => '保存';
+
+  @override
+  String get sshSettingsRemove => '删除';
+
+  @override
+  String get sshSettingsKeywords => 'ssh 远程 主机 密码 密钥';
+
+  @override
   String get settingsGroupPreferences => '偏好设置';
 
   @override

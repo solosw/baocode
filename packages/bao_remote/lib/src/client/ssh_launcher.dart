@@ -111,6 +111,40 @@ typedef SshProcessStarter = Future<Process> Function(
   Map<String, String>? environment,
 });
 
+/// Extra `ssh` arguments from the app's own host settings, rather than
+/// only `~/.ssh/config`: a user, a port, a key file, a saved password.
+class SshConnectOptions {
+  const SshConnectOptions({
+    this.user,
+    this.port,
+    this.identityFile,
+    this.password,
+  });
+
+  /// `ssh -l`. Empty means the config or the local user.
+  final String? user;
+
+  /// Overrides [SshTarget.port] when set.
+  final int? port;
+
+  /// `ssh -i`. Empty means the agent / default keys.
+  final String? identityFile;
+
+  /// Answered for a password prompt before the user is asked. A key
+  /// passphrase is still asked.
+  final String? password;
+
+  List<String> get arguments => [
+    if (user != null && user!.trim().isNotEmpty) ...['-l', user!.trim()],
+    if (identityFile != null && identityFile!.trim().isNotEmpty) ...[
+      '-i',
+      identityFile!.trim(),
+      '-o',
+      'IdentitiesOnly=yes',
+    ],
+  ];
+}
+
 /// A connection to a host's server: [client] over the stdin and stdout of
 /// `ssh`, which ends with it.
 class SshConnection {
@@ -161,6 +195,7 @@ class SshLauncher {
     SshProcessStarter? start,
     this.options = defaultOptions,
     this.prompter,
+    this.optionsFor,
     SshAskpass? askpass,
   }) : _start = start ?? Process.start,
        _askpass = askpass ?? SshAskpass();
@@ -176,6 +211,11 @@ class SshLauncher {
   /// that wants a password refuses. A host key `ssh` does not know is
   /// refused all the same.
   final SshPrompter? prompter;
+
+  /// Extra arguments for a host the app configured itself (user, key).
+  /// The port, when set, replaces the one in [SshTarget]. A saved password
+  /// is answered before [prompter].
+  final SshConnectOptions Function(SshTarget target)? optionsFor;
   final SshAskpass _askpass;
 
   /// Whether what `ssh` asks is answered (by a script of `sh`'s).
@@ -206,12 +246,38 @@ class SshLauncher {
   /// The server's path on the host, from the home folder.
   String get serverPath => '$_folder/baocode-server';
 
-  List<String> arguments(SshTarget target, String command) => [
-    for (final option in options)
-      option == 'BatchMode=yes' && _prompts ? 'BatchMode=no' : option,
-    ...target.arguments,
-    command,
-  ];
+  SshConnectOptions _optionsOf(SshTarget target) =>
+      optionsFor?.call(target) ?? const SshConnectOptions();
+
+  List<String> arguments(SshTarget target, String command) {
+    final extra = _optionsOf(target);
+    final port = extra.port ?? target.port;
+    return [
+      for (final option in options)
+        option == 'BatchMode=yes' && _prompts ? 'BatchMode=no' : option,
+      ...extra.arguments,
+      if (port != null) ...['-p', '$port'],
+      target.destination,
+      command,
+    ];
+  }
+
+  /// A saved password answers a password prompt; anything else goes to
+  /// [prompter] (a passphrase, a code, a retry).
+  SshPrompter? _prompterFor(SshTarget target) {
+    final saved = _optionsOf(target).password?.trim();
+    final prompter = this.prompter;
+    if (saved == null || saved.isEmpty) return prompter;
+    return (prompt) async {
+      final text = prompt.text.toLowerCase();
+      final password =
+          text.contains('password') &&
+          !text.contains('passphrase') &&
+          !RegExp(r'one-time|otp|verification|token|code').hasMatch(text);
+      if (password && !prompt.retry) return saved;
+      return prompter?.call(prompt);
+    };
+  }
 
   /// Starts `ssh` for [target] running [command], what it asks answered
   /// by [prompter] until [AskpassRun.close].
@@ -219,8 +285,8 @@ class SshLauncher {
     SshTarget target,
     String command,
   ) async {
-    final prompter = this.prompter;
-    final askpass = prompter != null && _prompts
+    final prompter = _prompterFor(target);
+    final askpass = prompter != null && !Platform.isWindows
         ? await _askpass.start(target, prompter)
         : null;
     try {

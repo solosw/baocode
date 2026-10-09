@@ -14,6 +14,7 @@ import '../l10n/l10n.dart';
 import '../theme/codicons.dart';
 import 'remote_location.dart';
 import 'ssh_host.dart';
+import 'ssh_host_settings.dart';
 
 /// The command's id, in the palettes and on the start page.
 const openRemoteFolderCommandId = 'baocode.remote.openFolder';
@@ -52,6 +53,12 @@ class OpenRemoteFlow {
     } on Object {
       known = const [];
     }
+    // Hosts saved in Settings → SSH come first; ~/.ssh/config fills the rest.
+    final seen = <String>{};
+    known = [
+      for (final host in [...SshHostSettings.instance.targets, ...known])
+        if (seen.add(host)) host,
+    ];
     final connected = {for (final host in hosts.connected) host.host};
     IdeQuickPickItem hostItem(String host) => IdeQuickPickItem(
       label: host,

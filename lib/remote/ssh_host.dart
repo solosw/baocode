@@ -16,6 +16,7 @@ import 'remote_binaries.dart';
 import 'remote_location.dart';
 import 'remote_lsp.dart';
 import 'remote_services.dart';
+import 'ssh_host_settings.dart';
 import 'ssh_passwords.dart';
 
 /// How far installing Claude Code on a host is: [received] bytes of
@@ -344,8 +345,40 @@ class SshHosts extends ChangeNotifier {
     return SshLauncher(
       ssh: ssh,
       binaries: binaries,
-      prompter: passwords.answer,
+      prompter: (prompt) async {
+        final saved = SshHostSettings.instance.match(prompt.target.text);
+        if (saved != null &&
+            saved.auth == SshAuthKind.password &&
+            saved.hasPassword &&
+            !prompt.retry &&
+            _isPasswordPrompt(prompt.text)) {
+          final password = await SshHostSettings.instance.passwordOf(saved.host);
+          if (password != null && password.isNotEmpty) return password;
+        }
+        return passwords.answer(prompt);
+      },
+      optionsFor: (target) {
+        final saved = SshHostSettings.instance.match(target.text);
+        if (saved == null) return const SshConnectOptions();
+        return SshConnectOptions(
+          user: saved.user.isEmpty ? null : saved.user,
+          port: saved.port,
+          identityFile:
+              saved.auth == SshAuthKind.key && saved.identityFile.isNotEmpty
+              ? saved.identityFile
+              : null,
+        );
+      },
     );
+  }
+
+  /// Whether [text] is an SSH password prompt, not a key passphrase or a
+  /// one-time code.
+  static bool _isPasswordPrompt(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('password') &&
+        !lower.contains('passphrase') &&
+        !RegExp(r'one-time|otp|verification|token|code').hasMatch(lower);
   }
 
   /// Ends every host's server and connection: for when the app quits.

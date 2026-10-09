@@ -5186,6 +5186,132 @@ abstract class AppLocalizations {
   /// **'General'**
   String get settingsSectionGeneral;
 
+  /// No description provided for @settingsSectionAgents.
+  ///
+  /// In en, this message translates to:
+  /// **'Agents'**
+  String get settingsSectionAgents;
+
+  /// No description provided for @settingsSectionSsh.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH'**
+  String get settingsSectionSsh;
+
+  /// No description provided for @sshSettingsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Hosts saved here are used when you open a remote folder. They are kept in BaoCode, not only in ~/.ssh/config. Passwords stay in the system keychain.'**
+  String get sshSettingsDescription;
+
+  /// No description provided for @sshSettingsHosts.
+  ///
+  /// In en, this message translates to:
+  /// **'Hosts'**
+  String get sshSettingsHosts;
+
+  /// No description provided for @sshSettingsHostsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Each host can sign in with a password or a private key. User and port are optional.'**
+  String get sshSettingsHostsDescription;
+
+  /// No description provided for @sshSettingsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No hosts saved yet'**
+  String get sshSettingsEmpty;
+
+  /// No description provided for @sshSettingsAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add host'**
+  String get sshSettingsAdd;
+
+  /// No description provided for @sshSettingsHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Host'**
+  String get sshSettingsHost;
+
+  /// No description provided for @sshSettingsHostHint.
+  ///
+  /// In en, this message translates to:
+  /// **'host or user@host'**
+  String get sshSettingsHostHint;
+
+  /// No description provided for @sshSettingsUser.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get sshSettingsUser;
+
+  /// No description provided for @sshSettingsUserHint.
+  ///
+  /// In en, this message translates to:
+  /// **'optional'**
+  String get sshSettingsUserHint;
+
+  /// No description provided for @sshSettingsPort.
+  ///
+  /// In en, this message translates to:
+  /// **'Port'**
+  String get sshSettingsPort;
+
+  /// No description provided for @sshSettingsPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get sshSettingsPassword;
+
+  /// No description provided for @sshSettingsKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Private key'**
+  String get sshSettingsKey;
+
+  /// No description provided for @sshSettingsKeyPath.
+  ///
+  /// In en, this message translates to:
+  /// **'Key file'**
+  String get sshSettingsKeyPath;
+
+  /// No description provided for @sshSettingsKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'~/.ssh/id_ed25519'**
+  String get sshSettingsKeyHint;
+
+  /// No description provided for @sshSettingsPasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved in the keychain'**
+  String get sshSettingsPasswordHint;
+
+  /// No description provided for @sshSettingsPasswordKept.
+  ///
+  /// In en, this message translates to:
+  /// **'A password is saved. Type a new one to replace it.'**
+  String get sshSettingsPasswordKept;
+
+  /// No description provided for @sshSettingsSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get sshSettingsSave;
+
+  /// No description provided for @sshSettingsRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get sshSettingsRemove;
+
+  /// No description provided for @sshSettingsKeywords.
+  ///
+  /// In en, this message translates to:
+  /// **'ssh remote host password key identity'**
+  String get sshSettingsKeywords;
+
   /// No description provided for @settingsGroupPreferences.
   ///
   /// In en, this message translates to:

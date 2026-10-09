@@ -2910,6 +2910,72 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSectionGeneral => 'General';
 
   @override
+  String get settingsSectionAgents => 'Agents';
+
+  @override
+  String get settingsSectionSsh => 'SSH';
+
+  @override
+  String get sshSettingsDescription =>
+      'Hosts saved here are used when you open a remote folder. They are kept in BaoCode, not only in ~/.ssh/config. Passwords stay in the system keychain.';
+
+  @override
+  String get sshSettingsHosts => 'Hosts';
+
+  @override
+  String get sshSettingsHostsDescription =>
+      'Each host can sign in with a password or a private key. User and port are optional.';
+
+  @override
+  String get sshSettingsEmpty => 'No hosts saved yet';
+
+  @override
+  String get sshSettingsAdd => 'Add host';
+
+  @override
+  String get sshSettingsHost => 'Host';
+
+  @override
+  String get sshSettingsHostHint => 'host or user@host';
+
+  @override
+  String get sshSettingsUser => 'User';
+
+  @override
+  String get sshSettingsUserHint => 'optional';
+
+  @override
+  String get sshSettingsPort => 'Port';
+
+  @override
+  String get sshSettingsPassword => 'Password';
+
+  @override
+  String get sshSettingsKey => 'Private key';
+
+  @override
+  String get sshSettingsKeyPath => 'Key file';
+
+  @override
+  String get sshSettingsKeyHint => '~/.ssh/id_ed25519';
+
+  @override
+  String get sshSettingsPasswordHint => 'Saved in the keychain';
+
+  @override
+  String get sshSettingsPasswordKept =>
+      'A password is saved. Type a new one to replace it.';
+
+  @override
+  String get sshSettingsSave => 'Save';
+
+  @override
+  String get sshSettingsRemove => 'Remove';
+
+  @override
+  String get sshSettingsKeywords => 'ssh remote host password key identity';
+
+  @override
   String get settingsGroupPreferences => 'Preferences';
 
   @override

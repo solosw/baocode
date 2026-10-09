@@ -43,6 +43,7 @@ import 'platform/open_requests.dart';
 import 'remote/project_host.dart';
 import 'remote/remote_claude.dart';
 import 'remote/ssh_host.dart';
+import 'remote/ssh_host_settings.dart';
 import 'search/claude_conversation_search.dart';
 import 'search/conversation_search.dart';
 import 'settings/app_locale.dart';
@@ -121,6 +122,8 @@ Future<void> main(List<String> arguments) async {
     // Settings → Appearance: the code's font, size and ligatures, and the
     // window's text size.
     CodeFont.follow(files.settings, (key) => files.settings[key]);
+    SshHostSettings.instance = SshHostSettings(settings: files.settings);
+    unawaited(SshHostSettings.instance.load());
   }
   await prepareClaudeOnboarding();
   final locale = AppLocale(storage: files?.argv);

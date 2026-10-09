@@ -24,7 +24,9 @@ import 'pages/keybindings_page.dart';
 import 'pages/models_page.dart';
 import 'pages/language_page.dart';
 import 'pages/notifications_page.dart';
+import 'pages/ssh_hosts_page.dart';
 import 'pages/updates_page.dart';
+import '../remote/ssh_host_settings.dart';
 import 'settings_dialog.dart';
 import 'user_settings.dart';
 
@@ -116,6 +118,8 @@ class AppSettings {
         return ModelsSettingsPage(providers: ModelProviders.current);
       case SettingsSection.agents:
         return AgentsSettingsPage(agents: acpAgents);
+      case SettingsSection.ssh:
+        return SshHostsSettingsPage(hosts: SshHostSettings.instance);
       case SettingsSection.notifications:
         return NotificationsSettingsPage(settings: files?.settings);
       case SettingsSection.language:
