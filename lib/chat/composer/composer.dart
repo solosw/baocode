@@ -70,7 +70,8 @@ class _Trigger {
 /// Files come in as tags of their paths (images as images, where the
 /// conversation takes them): dragged onto it from other apps or from the
 /// IDE, pasted after a copy, or picked (Add Context…). Code copied from the
-/// IDE's editor pastes as a tag of its lines (see [CopiedCode]).
+/// IDE's editor pastes as a tag of its lines (see [CopiedCode]), and text
+/// too long to lay out as a tag of it (see [PastedText]).
 class ChatComposer extends StatefulWidget {
   const ChatComposer({
     super.key,
@@ -259,10 +260,19 @@ class ChatComposerState extends State<ChatComposer>
       }
     }
     if (text == null || !mounted) return false;
+    final plain = text.replaceAll('\r\n', '\n');
+    if (PastedText.isLong(plain)) {
+      _insertTags([
+        ComposerPastedTextEmbed.of(
+          PastedText(number: _nextPastedNumber(), text: plain),
+        ),
+      ]);
+      return true;
+    }
     final selection = _controller.selection;
     final start = selection.start;
     final content = composerDeltaFromPaste(
-      text.replaceAll('\r\n', '\n'),
+      plain,
       ComposerVocabulary.read(context),
       atStart: start == 0,
       images: _pool.keys.toSet(),
@@ -285,6 +295,20 @@ class ChatComposerState extends State<ChatComposer>
         ChangeSource.local,
       );
     return true;
+  }
+
+  /// The number for a long paste: one past the highest the text has.
+  int _nextPastedNumber() {
+    var highest = 0;
+    for (final op in _controller.document.toDelta().toList()) {
+      if (op.data case {ComposerPastedTextEmbed.type: final data}) {
+        highest = math.max(
+          highest,
+          ComposerPastedTextEmbed.decode(data).number,
+        );
+      }
+    }
+    return highest + 1;
   }
 
   @override
@@ -316,6 +340,7 @@ class ChatComposerState extends State<ChatComposer>
   void dispose() {
     widget.draft?.removeListener(_handleDraftChanged);
     FloatingRegistry.closePopover(_menuOwner);
+    _clickWindow?.cancel();
     _controller.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
@@ -1082,7 +1107,7 @@ class ChatComposerState extends State<ChatComposer>
   ComposerMessage _buildMessage() {
     final text = StringBuffer();
     final mentions = <String>[];
-    final code = <String, CodeReference>{};
+    final code = <String, AppendedText>{};
     for (final op in _controller.document.toDelta().toList()) {
       final data = op.data;
       if (data is String) {
@@ -1093,6 +1118,10 @@ class ChatComposerState extends State<ChatComposer>
         final reference = ComposerCodeEmbed.decode(raw);
         text.write(reference.reference);
         code.putIfAbsent(reference.reference, () => reference);
+      } else if (data case {ComposerPastedTextEmbed.type: final raw}) {
+        final pasted = ComposerPastedTextEmbed.decode(raw);
+        text.write(pasted.reference);
+        code.putIfAbsent(pasted.reference, () => pasted);
       } else if (data is Map && data.containsKey(ComposerTokenEmbed.type)) {
         final raw = data[ComposerTokenEmbed.type];
         text.write(ComposerTokenEmbed.plainText(raw));
@@ -1276,8 +1305,11 @@ class ChatComposerState extends State<ChatComposer>
           child: Listener(
             onPointerDown: _handleSelectPointerDown,
             onPointerMove: _handleSelectPointerMove,
-            onPointerUp: (_) => _selectDragFrom = null,
-            onPointerCancel: (_) => _selectDragFrom = null,
+            onPointerUp: _handleSelectPointerUp,
+            onPointerCancel: (_) {
+              _selectDragFrom = null;
+              _clickDownAt = null;
+            },
             child: Listener(
               onPointerDown: _handleMenuPointerDown,
               onPointerUp: _handleMenuPointerUp,
@@ -1369,6 +1401,12 @@ class ChatComposerState extends State<ChatComposer>
         !HardwareKeyboard.instance.isShiftPressed;
     _selectDragFrom = plainPress ? event.position : null;
     _selectDragging = false;
+    _handleClickDown(event, plainPress: plainPress);
+  }
+
+  void _handleSelectPointerUp(PointerUpEvent event) {
+    _selectDragFrom = null;
+    _handleClickUp(event);
   }
 
   void _handleSelectPointerMove(PointerMoveEvent event) {
@@ -1393,6 +1431,66 @@ class ChatComposerState extends State<ChatComposer>
     });
   }
 
+  // --- Double-click -------------------------------------------------------
+  //
+  // A double-click with nothing selected selects everything; with text
+  // selected it selects a word, as Quill does. Told apart here rather than
+  // by Quill: a real click often moves the pointer a pixel or two, past
+  // where Quill's drag recognizer takes the press from its tap, and then it
+  // sees no double-click at all.
+
+  /// How far a press may move and still be a click.
+  static const _clickSlop = 6.0;
+
+  /// Where the current plain press came down; null for other presses.
+  Offset? _clickDownAt;
+
+  /// Open from a click's up while a press near it is that click's double.
+  Timer? _clickWindow;
+  Offset? _clickUpAt;
+
+  /// Whether text was selected when the last first click came down.
+  bool _clickOnSelection = false;
+
+  /// Whether the current press is a double-click's second.
+  bool _secondClick = false;
+
+  void _handleClickDown(PointerDownEvent event, {required bool plainPress}) {
+    final upAt = _clickUpAt;
+    _clickDownAt = plainPress ? event.position : null;
+    _secondClick =
+        plainPress &&
+        _clickWindow?.isActive == true &&
+        upAt != null &&
+        (event.position - upAt).distance <= kDoubleTapSlop;
+    _clickWindow?.cancel();
+    _clickWindow = null;
+    // The first click puts any selection away, so ask before it.
+    if (!_secondClick) _clickOnSelection = !_controller.selection.isCollapsed;
+  }
+
+  void _handleClickUp(PointerUpEvent event) {
+    final downAt = _clickDownAt;
+    _clickDownAt = null;
+    if (downAt == null || (event.position - downAt).distance > _clickSlop) {
+      return;
+    }
+    // As Quill's, a third click is a click again (no window after a second).
+    if (_secondClick) {
+      if (_clickOnSelection) return;
+      // After Quill's handling of the up, which comes after this: whatever
+      // it made of the press (a word, a caret, a drag of a pixel).
+      scheduleMicrotask(() {
+        if (mounted) {
+          _editorKey.currentState?.selectAll(SelectionChangedCause.tap);
+        }
+      });
+      return;
+    }
+    _clickUpAt = event.position;
+    _clickWindow = Timer(kDoubleTapTimeout, () => _clickWindow = null);
+  }
+
   /// Grows with content up to 10 lines, or a third of the window on short
   /// windows, then scrolls internally.
   double _maxEditorHeight(BuildContext context) {
@@ -1412,11 +1510,11 @@ class ChatComposerState extends State<ChatComposer>
         editorKey: _editorKey,
         // A suggested prompt, then the key that takes it as the keybindings
         // label it (`Tab`); alone when it has none.
-        placeholder: switch ((_suggestion, _suggestionKey)) {
+        placeholder: _quillPlaceholder(switch ((_suggestion, _suggestionKey)) {
           (final suggestion?, final key?) => '$suggestion    $key',
           (final suggestion?, null) => suggestion,
           (null, _) => context.l10n.composerPlaceholder,
-        },
+        }),
         minHeight: _minEditorHeight,
         maxHeight: _maxEditorHeight(context),
         textCapitalization: TextCapitalization.none,
@@ -1425,6 +1523,7 @@ class ChatComposerState extends State<ChatComposer>
           ComposerTokenEmbedBuilder(),
           ComposerImageEmbedBuilder(),
           ComposerCodeEmbedBuilder(),
+          ComposerPastedTextEmbedBuilder(),
           ComposerGhostEmbedBuilder(),
         ],
         // ignore: experimental_member_use
@@ -1435,6 +1534,14 @@ class ChatComposerState extends State<ChatComposer>
       ),
     );
   }
+
+  /// [text] as Quill's placeholder takes it. Quill reads the placeholder as
+  /// JSON it splices the text into, escaping only its quotes: a backslash
+  /// (a Windows path in a suggested prompt) or a control character (a line
+  /// break) failed its build, and the input was a grey box until the app
+  /// restarted. On one line, its backslashes escaped.
+  static String _quillPlaceholder(String text) =>
+      text.replaceAll(RegExp(r'[\x00-\x1f]+'), ' ').replaceAll(r'\', r'\\');
 
   /// Quill's paragraph style does not inherit the ambient text theme, so
   /// derive it explicitly to match the rest of the UI.

@@ -90,6 +90,16 @@
       }
     }
   },
+  "interactionHintBack": "{keybinding} to go back",
+  "@interactionHintBack": {
+    "description": "Key hint under a prompt's options, when it has more than one question.",
+    "placeholders": {
+      "keybinding": {
+        "type": "String",
+        "example": "Left"
+      }
+    }
+  },
   "interactionHintSkip": "{keybinding} to skip",
   "@interactionHintSkip": {
     "description": "Key hint under a prompt's options.",
@@ -153,6 +163,7 @@
   "cmdChatHideSuggestWidget": "Hide Suggestions",
   "cmdChatInteractionFocusNext": "Focus Next Option",
   "cmdChatInteractionFocusPrevious": "Focus Previous Option",
+  "cmdChatInteractionBack": "Back to Previous Question",
   "cmdChatInteractionToggle": "Toggle Option",
   "cmdChatInteractionAccept": "Continue",
   "cmdChatInteractionDismiss": "Dismiss",
@@ -414,6 +425,7 @@
   "cmdShowAllCommands": "Show All Commands",
   "cmdQuickOpen": "Go to File…",
   "cmdGotoLine": "Go to Line/Column…",
+  "cmdChangeEol": "Change End of Line Sequence",
   "cmdFind": "Find",
   "cmdReplace": "Replace",
   "cmdSave": "Save",
@@ -1187,6 +1199,24 @@
       }
     }
   },
+  "pastedTextChip": "Pasted text #{number}",
+  "@pastedTextChip": {
+    "description": "A long paste's reference in a message's text, as a small tag: the paste's number in the message.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "pastedTextLines": "{count, plural, =1{+1 line} other{+{count} lines}}",
+  "@pastedTextLines": {
+    "description": "After a long paste's tag: how many lines it has past its first.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "imageCopy": "Copy Image",
   "@imageCopy": {
     "description": "Context menu item of an enlarged image: copies the image to the clipboard."
@@ -1531,6 +1561,7 @@
   "interactionKeepPlanning": "Keep planning",
   "interactionSubmit": "Submit",
   "interactionNext": "Next",
+  "interactionBack": "Back",
   "interactionMoreLines": "{count, plural, =1{… 1 more line} other{… {count} more lines}}",
   "@interactionMoreLines": {
     "placeholders": {
@@ -3134,8 +3165,9 @@
   },
   "wbIndentation": "Indentation",
   "wbEncoding": "Encoding",
-  "wbEndOfLine": "End of Line Sequence",
   "wbEolMixed": "Mixed",
+  "wbSelectEol": "Select End of Line Sequence",
+  "wbEditorReadOnly": "The active code editor is read-only.",
   "wbLanguageMode": "Language Mode",
   "editorCommandPalette": "Command Palette...",
   "editorStartTyping": "Start typing…",
@@ -3321,6 +3353,14 @@
       }
     }
   },
+  "dataDirMoveInUse": "{path} is in use by another program. Close that program, then try again.",
+  "@dataDirMoveInUse": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
   "dataDirRestartTitle": "Restart BaoCode to use the new data folder",
   "dataDirRestartDetail": "BaoCode keeps using {current} until it restarts. The next start uses {next}, and offers to remove what is left in the old one.",
   "@dataDirRestartDetail": {
@@ -3449,6 +3489,15 @@
   },
   "dataDirRemove": "Remove",
   "dataDirKeep": "Keep",
+  "dataDirRemoveOldInUse": "Some of the old data could not be removed",
+  "dataDirRemoveOldInUseDetail": "Files in {items} are in use, perhaps by another program. Everything else was removed; BaoCode offers to remove the rest the next time it starts.",
+  "@dataDirRemoveOldInUseDetail": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
   "impTitle": "Import Keybindings",
   "impImport": "Import",
   "impNothingFound": "No keybindings or keymaps of Visual Studio Code, Cursor, Windsurf or VSCodium were found.",
@@ -4210,6 +4259,18 @@
     }
   },
   "updateOpenDownloadPage": "Open Download Page",
+  "updateUnfinished": "BaoCode {version} wasn't installed: this is still {current}. Try again from Settings > Updates, or download it from baocode.dev.",
+  "@updateUnfinished": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      }
+    }
+  },
+  "updateShowLog": "Show Install Log",
   "updateReleaseNotes": "Release Notes",
   "updateReleaseNotesFor": "What's New in {version}",
   "@updateReleaseNotesFor": {
@@ -4275,6 +4336,40 @@
   "@appearanceSettingsChatWidthLabel": {
     "placeholders": {
       "width": {
+        "type": "String"
+      }
+    }
+  },
+  "appearanceSettingsCodeFont": "Code Font",
+  "appearanceSettingsCodeFontDescription": "The font code is drawn in: in the editor, the terminal, the chat and the previews. Family names in order, separated by commas, or a preset.",
+  "appearanceSettingsCodeFontDefault": "Default",
+  "appearanceSettingsCodeFontField": "Font families",
+  "appearanceSettingsCodeFontLabel": "Code font: {font}",
+  "@appearanceSettingsCodeFontLabel": {
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "appearanceSettingsCodeSize": "Code Size",
+  "appearanceSettingsCodeSizeDescription": "The size of code in the editor, the terminal, the chat and the previews.",
+  "appearanceSettingsCodeSizeLabel": "Code size: {size}",
+  "@appearanceSettingsCodeSizeLabel": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "appearanceSettingsLigatures": "Font Ligatures",
+  "appearanceSettingsLigaturesDescription": "Draws sequences such as => and != as one glyph where the font has one. The terminal does not.",
+  "appearanceSettingsUiScale": "Interface Text Size",
+  "appearanceSettingsUiScaleDescription": "The size of the window's text. Code keeps its own size.",
+  "appearanceSettingsUiScaleLabel": "Interface text size: {percent}%",
+  "@appearanceSettingsUiScaleLabel": {
+    "placeholders": {
+      "percent": {
         "type": "String"
       }
     }

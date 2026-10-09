@@ -62,7 +62,7 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 - **通知**：出现在主窗口右下角，常驻不自动消失。
   - 普通更新：`BaoCode 1.2.0 已下载，重启即可完成更新。`，按钮有“立即重启更新”、“稍后”、“跳过此版本”；有更新日志时，齿轮菜单里还有“更新日志”（会打开设置页）。
   - 强制更新（当前版本低于 `minimumVersion`）：只有“立即重启更新”一个按钮。
-- **侧边栏底部的“更新”按钮**：在设置齿轮左边，蓝色胶囊样式，有更新待安装时一直显示，点击等同于“立即重启更新”，鼠标悬停时显示版本号。显示条件见 `UpdateService.pending`：已下载完成；`manual` 模式下已发现新版本；或者是强制更新。跳过的版本不显示（强制更新除外），已是最新时也不显示。
+- **侧边栏底部的“更新”按钮**：在设置齿轮左边，蓝色胶囊样式，有更新待安装时一直显示，点击等同于“立即重启更新”，鼠标悬停时显示版本号。显示条件见 `UpdateService.pending`：已下载完成；`manual` 模式下已发现新版本；跳过的版本（不弹通知、不在后台下载，但按钮照常显示，点击时再下载）；或者是强制更新。已是最新时不显示。
 - **命令面板**：“检查更新...”（命令 id `update.checkForUpdate`），聊天布局和 IDE 都有，也可以绑定快捷键。
 - **macOS 菜单栏**：应用菜单 →“关于 BaoCode”下面的“检查更新…”。
 - **设置 → 更新**：显示当前版本、上次检查时间、“检查更新”按钮、检查结果和下载进度、“立即重启更新”按钮、更新方式下拉框，以及新版本的更新日志。
@@ -71,8 +71,9 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 
 - **自动检查失败**：只写一行日志，不弹任何提示。**手动检查失败**：弹出错误通知。
 - **同一版本只提示一次**：一次运行中，同一个版本只自动提示一次；点了“稍后”，要等下次启动才会再提示。
-- **跳过此版本**：自动检查不再提示这个版本，有更新的版本时照常提示；手动检查和设置页里仍然可以安装。
+- **跳过此版本**：自动检查不再弹通知、不在后台下载这个版本，有更新的版本时照常提示；侧边栏的“更新”按钮、手动检查和设置页里仍然可以安装。
 - **强制更新**：忽略“跳过”，每次自动检查都会再提示一次。
+- **没装上时提示**：启动安装程序后，退出前把目标版本记到 `state/storage.json` 的 `update.installingVersion`。下次启动时如果当前版本仍低于它（UAC 被拒、签名策略不让提权、文件被占用、安装还没完成就打开了旧版本等），主窗口弹出警告“BaoCode X 没有装上，当前仍是 Y”，按钮有“打开下载页”和“查看安装日志”。只提示一次。
 - **安装前确认**：点“立即重启更新”后，走的是和平时退出完全一样的流程：有未保存的文件就先问保存，有正在运行的 agent 或终端就先确认。用户取消退出，就**什么都不装**，下载好的安装包留着，下次点直接用。
 - **只有 release 构建自动更新**：`flutter run` 起的 debug 构建默认不更新（它会替换掉 build 目录里的应用）。设置页会显示“此版本的 BaoCode 不支持自动更新”。设置了 `BAOCODE_UPDATE_URL` 的情况除外，见第 8 节。
 
@@ -124,7 +125,7 @@ main.dart onExitRequested
 | --- | --- | --- |
 | `UpdateBackend` | `IoUpdateBackend` | `fetchManifest`、`download`、`cleanUp` |
 | `UpdateInstaller` / `PreparedUpdate` | `WindowsUpdateInstaller`、`MacUpdateInstaller` | `prepare`（准备）、`launch`（启动） |
-| `UpdateProcesses` | `IoUpdateProcesses` | 运行和启动外部程序（ditto、codesign、powershell…） |
+| `UpdateProcesses` | `IoUpdateProcesses` | 运行和启动外部程序（ditto、codesign、reg、Setup…） |
 | `UpdateStore` | `GlobalUpdateStore` | 跳过的版本、上次检查时间 |
 
 ### 3.3 状态（`UpdateStatus`）
@@ -187,27 +188,21 @@ main.dart onExitRequested
 准备阶段（`WindowsUpdateInstaller.prepare`）：
 
 - `baocode.exe` 旁边没有 `unins000.exe` → 抛 `ManualUpdateRequired`（不是用安装包装的，比如直接从 build 目录运行）。
-- 判断原来的安装方式：exe 在 `%ProgramFiles%`、`%ProgramW6432%` 或 `%ProgramFiles(x86)%` 下面就是按机器安装（`/ALLUSERS`），否则是按用户安装（`/CURRENTUSER`）。
+- 判断原来的安装方式：用 `reg.exe query <hive>\…\Uninstall\{6fdd732b-…}_is1 /reg:64` 看 Setup 把卸载项登记在 HKLM（按机器，`/ALLUSERS`）还是 HKCU（按用户，`/CURRENTUSER`）。两边都有（装了两份）或都没有时，退回看 exe 是否在 `%ProgramFiles%`、`%ProgramW6432%` 或 `%ProgramFiles(x86)%` 下面。
 
-启动阶段：以分离进程的方式运行
+启动阶段：在应用退出**之前**，以分离进程的方式直接运行 Setup，中间没有 PowerShell：
 
 ```
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand <base64>
+<setup.exe> /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RELAUNCH /ALLUSERS 或 /CURRENTUSER /DIR=<exe 所在目录> /WAITPID=<应用 pid> /LOG=updates\install.log
 ```
 
-解码后的脚本：
-
-```powershell
-$ErrorActionPreference = 'SilentlyContinue'
-Wait-Process -Id <应用 pid> -Timeout 120
-Start-Process -FilePath '<setup.exe>' -ArgumentList @('/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RELAUNCH', '/ALLUSERS 或 /CURRENTUSER')
-```
-
-- 用 `-EncodedCommand`（UTF-16LE + base64），路径里有空格、引号也不会出错。
-- 用 `Start-Process` 启动 Setup，按机器安装时 Windows 会正常弹出 UAC。
-- 120 秒内应用没退出也会继续启动 Setup；`CloseApplications=force` 会把它关掉。
-- `/SILENT` 会显示进度窗口但不提问；Inno Setup 会沿用上次的安装目录和勾选的选项（桌面图标、PATH、右键菜单）。
+- Setup 由还在前台的应用启动，按机器安装时 UAC 弹窗会出现在前面，而不是在任务栏上闪（应用已经退出、没有前台窗口时就会这样，用户看不到）。
+- `/WAITPID` 是 `tool/baocode.iss` 自己的参数：`InitializeSetup` 里用 `OpenProcess` + `WaitForSingleObject` 最多等 120 秒，应用退出后再安装；还没退出就继续，`CloseApplications=force` 会把它关掉。
+- `/DIR` 指定装回当前 exe 所在的目录，不管 Setup 记录的上次目录是什么，保证覆盖的正是正在运行的这一份。
+- `/LOG` 写到 `updates\install.log`；`SetupLogging=yes` 让没带 `/LOG` 的安装（包括 1.0.0 通过 PowerShell 启动的更新）也会在 `%TEMP%\Setup Log <日期> #<n>.txt` 留下日志。
+- `/SILENT` 会显示进度窗口但不提问；Inno Setup 会沿用上次勾选的选项（桌面图标、PATH、右键菜单）。
 - `tool/baocode.iss` 的 `[Run]` 里有一条 `Check: RelaunchRequested`：只有静默安装并且带了 `/RELAUNCH` 时，才以原用户身份重新打开应用。
+- 1.0.0 的应用仍用旧方式（隐藏的 PowerShell 等应用退出后 `Start-Process`，不带 `/WAITPID`、`/DIR`、`/LOG`）启动新版 Setup，新版 Setup 要继续兼容这种命令行。
 
 ### 4.5 macOS 安装
 
@@ -229,7 +224,9 @@ Start-Process -FilePath '<setup.exe>' -ArgumentList @('/SILENT', '/SUPPRESSMSGBO
 
 ### 4.6 下次启动
 
-`UpdateService.start()` 会清理 `updates/` 下所有版本号 ≤ 当前版本的目录，以及名字不是版本号的目录。`install.log` 是文件，不会被清理。
+`UpdateService.start()` 会清理 `updates/` 下所有版本号 ≤ 当前版本的目录，以及名字不是版本号的目录。`install.log` 是文件，不会被清理。没装上的那个版本的安装包比当前版本新，会留着，重试时直接用。
+
+它还会读出并清掉 `update.installingVersion`：当前版本仍低于它，就记为 `unfinishedInstall`；主窗口 `UpdateController.listen` 时（窗口建好后的下一轮事件循环）取走它，弹出“没有装上”的提示（见 2.3）。
 
 ---
 
@@ -443,7 +440,7 @@ flutter test test/update
 | `update_signature_test.dart` | 签名往返；改版本号、换密钥、篡改签名都会验签失败；内置公钥格式正确 |
 | `update_io_test.dart` | 本地 HttpServer：下载、复用已下载的文件、SHA-256 / 签名 / 大小不对时拒绝、断点续传、服务器不支持 Range、只保留最新版本、清理旧版本 |
 | `update_service_test.dart` | 三种模式、30 秒和 6 小时的定时、模式切换、只提示一次、跳过、强制更新、下载去重、arm / disarm / 启动失败 |
-| `installer_test.dart` | Windows 的参数、脚本、PowerShell 编码、安装方式判断、没有 `unins000` 时的处理；macOS 的解压、bundle id、签名和 Team 检查、无法替换时转下载页、脚本内容（以及 `bash -n` 语法检查） |
+| `installer_test.dart` | Windows 的 Setup 参数、按注册表判断安装方式、没有 `unins000` 时的处理；macOS 的解压、bundle id、签名和 Team 检查、无法替换时转下载页、脚本内容（以及 `bash -n` 语法检查） |
 | `update_controller_test.dart` | 通知的按钮、强制更新只有一个按钮、跳过、重启、下载页、校验失败 |
 | `updates_page_test.dart` | 设置页显示、检查、重启、错误显示、`update.mode` 的读写 |
 
@@ -506,11 +503,12 @@ flutter test test/update
 
 ### Windows
 
-- [ ] 按机器安装（Program Files）的旧版本：更新时弹出 UAC → 静默安装 → 应用自动重新打开，版本号已更新
+- [ ] 新装默认是“仅为我安装”（`%LOCALAPPDATA%\Programs\BaoCode`），安装和更新都不弹 UAC
+- [ ] 按机器安装（Program Files）的旧版本：更新时弹出 UAC，**出现在最前面** → 静默安装 → 应用自动重新打开，版本号已更新
 - [ ] 按用户安装（`%LOCALAPPDATA%\Programs`）的旧版本：更新时不弹 UAC，其他同上
 - [ ] 桌面图标、PATH、右键菜单这些选项更新后保持原样
 - [ ] 有运行中的 agent 时会先弹退出确认框；取消后应用保持运行，安装包还在
-- [ ] 拒绝 UAC：应用已经退出，没有安装；重新打开应用后会再次提示
+- [ ] 拒绝 UAC：应用已经退出，没有安装；重新打开应用后弹出“没有装上”的警告，“查看安装日志”能打开 `updates\install.log`
 - [ ] 直接从 build 目录运行时，提示去下载页
 - [ ] 安装包改动一个字节，或者换一个私钥签名：提示“更新失败”，`updates\` 下没有残留文件
 - [ ] 下载到一半断网，恢复后接着下载（需要服务器支持 Range）

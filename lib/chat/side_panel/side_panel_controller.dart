@@ -6,8 +6,10 @@ import 'package:path/path.dart' as p;
 import '../../ide/file_service.dart';
 import '../../ide/git/git_repository.dart';
 import '../../ide/git/ide_scm_view.dart' show IdeScmSession;
+import '../../ide/ide_code_editor.dart' show IdeCodeHighlights;
 import '../../ide/ide_explorer.dart';
 import '../../settings/user_settings.dart';
+import 'file_edit.dart';
 import 'file_open.dart';
 
 /// A file the side panel shows: its text or its changes, as [request]
@@ -21,8 +23,28 @@ class SidePanelTab {
   /// the lines asked for once more.
   int reveal = 0;
 
+  /// Its file's text as edited, once read: kept while the tab is open (see
+  /// [AgentSidePanel.keepEdit]); none for changes.
+  SidePanelFileEdit? edit;
+
   String get path => request.path;
   bool get diff => request.diff;
+
+  /// Its text differs from the file's, not saved.
+  bool get dirty => edit?.dirty ?? false;
+
+  /// Its edit let go of, with its highlighting in [highlights], once its
+  /// preview (built with it until the tab closed) is gone.
+  void _dropEdit(IdeCodeHighlights highlights) {
+    final edit = this.edit;
+    this.edit = null;
+    if (edit != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        highlights.release(edit.controller);
+        edit.dispose();
+      });
+    }
+  }
 }
 
 /// The side panel's pages, each a list at the left and the tabs it opened
@@ -311,8 +333,11 @@ class AgentSidePanel extends ChangeNotifier {
     if (tab == null) {
       tab = SidePanelTab(request);
       list.add(tab);
+      // The oldest out of sight close; not one with unsaved changes.
       while (list.length > maxTabs) {
-        list.removeAt(0);
+        final oldest = list.indexWhere((tab) => !tab.dirty);
+        if (oldest < 0 || oldest == list.length - 1) break;
+        list.removeAt(oldest)._dropEdit(highlights);
       }
     } else {
       tab
@@ -339,6 +364,7 @@ class AgentSidePanel extends ChangeNotifier {
         ..request = request
         ..reveal += 1;
     } else {
+      tabs.plan?._dropEdit(highlights);
       tabs.plan = SidePanelTab(request);
     }
     tabs.section = SidePanelSection.plan;
@@ -380,10 +406,25 @@ class AgentSidePanel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Closes [tab]; selects the one after it, else before it, else none.
-  /// The plan's, its page with it, back to the changes page.
+  /// Keeps [edit], its file's text as edited, with [tab] until it closes;
+  /// its tab shows whether it has unsaved changes.
+  void keepEdit(SidePanelTab tab, SidePanelFileEdit edit) {
+    if (identical(tab.edit, edit)) return;
+    tab._dropEdit(highlights);
+    tab.edit = edit
+      ..addListener(() {
+        // A save may end once the panel is gone.
+        if (!_disposed) notifyListeners();
+      });
+    notifyListeners();
+  }
+
+  /// Closes [tab], its changes not saved (see [SidePanelTab.dirty]);
+  /// selects the one after it, else before it, else none. The plan's, its
+  /// page with it, back to the changes page.
   void close(Object conversation, SidePanelTab tab) {
     final tabs = tabsOf(conversation);
+    tab._dropEdit(highlights);
     if (identical(tabs.plan, tab)) {
       tabs.plan = null;
       if (tabs.section == SidePanelSection.plan) {
@@ -426,8 +467,16 @@ class AgentSidePanel extends ChangeNotifier {
     'changesAsTree': _changesAsTree,
   };
 
+  bool _disposed = false;
+
+  /// Its tabs' files' highlighting, kept while they are open, for a tab
+  /// shown again to be colored at once.
+  final IdeCodeHighlights highlights = IdeCodeHighlights();
+
   @override
   void dispose() {
+    _disposed = true;
+    highlights.dispose();
     focusNode.dispose();
     for (final scm in _scm.values) {
       scm.dispose();

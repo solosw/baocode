@@ -272,6 +272,12 @@ abstract class AppLocalizations {
   /// **'{keybinding} to continue'**
   String interactionHintContinue(String keybinding);
 
+  /// Key hint under a prompt's options, when it has more than one question.
+  ///
+  /// In en, this message translates to:
+  /// **'{keybinding} to go back'**
+  String interactionHintBack(String keybinding);
+
   /// Key hint under a prompt's options.
   ///
   /// In en, this message translates to:
@@ -493,6 +499,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Focus Previous Option'**
   String get cmdChatInteractionFocusPrevious;
+
+  /// No description provided for @cmdChatInteractionBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Previous Question'**
+  String get cmdChatInteractionBack;
 
   /// No description provided for @cmdChatInteractionToggle.
   ///
@@ -1969,6 +1981,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Go to Line/Column…'**
   String get cmdGotoLine;
+
+  /// No description provided for @cmdChangeEol.
+  ///
+  /// In en, this message translates to:
+  /// **'Change End of Line Sequence'**
+  String get cmdChangeEol;
 
   /// No description provided for @cmdFind.
   ///
@@ -3932,6 +3950,18 @@ abstract class AppLocalizations {
   /// **'[Image {number}]'**
   String imageReferenceRemoved(int number);
 
+  /// A long paste's reference in a message's text, as a small tag: the paste's number in the message.
+  ///
+  /// In en, this message translates to:
+  /// **'Pasted text #{number}'**
+  String pastedTextChip(int number);
+
+  /// After a long paste's tag: how many lines it has past its first.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{+1 line} other{+{count} lines}}'**
+  String pastedTextLines(int count);
+
   /// Context menu item of an enlarged image: copies the image to the clipboard.
   ///
   /// In en, this message translates to:
@@ -4531,6 +4561,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Next'**
   String get interactionNext;
+
+  /// No description provided for @interactionBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get interactionBack;
 
   /// No description provided for @interactionMoreLines.
   ///
@@ -7419,17 +7455,23 @@ abstract class AppLocalizations {
   /// **'Encoding'**
   String get wbEncoding;
 
-  /// No description provided for @wbEndOfLine.
-  ///
-  /// In en, this message translates to:
-  /// **'End of Line Sequence'**
-  String get wbEndOfLine;
-
   /// No description provided for @wbEolMixed.
   ///
   /// In en, this message translates to:
   /// **'Mixed'**
   String get wbEolMixed;
+
+  /// No description provided for @wbSelectEol.
+  ///
+  /// In en, this message translates to:
+  /// **'Select End of Line Sequence'**
+  String get wbSelectEol;
+
+  /// No description provided for @wbEditorReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'The active code editor is read-only.'**
+  String get wbEditorReadOnly;
 
   /// No description provided for @wbLanguageMode.
   ///
@@ -7857,6 +7899,12 @@ abstract class AppLocalizations {
   /// **'The data could not be moved: {error}'**
   String dataDirMoveFailed(String error);
 
+  /// No description provided for @dataDirMoveInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'{path} is in use by another program. Close that program, then try again.'**
+  String dataDirMoveInUse(String path);
+
   /// No description provided for @dataDirRestartTitle.
   ///
   /// In en, this message translates to:
@@ -8066,6 +8114,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Keep'**
   String get dataDirKeep;
+
+  /// No description provided for @dataDirRemoveOldInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'Some of the old data could not be removed'**
+  String get dataDirRemoveOldInUse;
+
+  /// No description provided for @dataDirRemoveOldInUseDetail.
+  ///
+  /// In en, this message translates to:
+  /// **'Files in {items} are in use, perhaps by another program. Everything else was removed; BaoCode offers to remove the rest the next time it starts.'**
+  String dataDirRemoveOldInUseDetail(String items);
 
   /// No description provided for @impTitle.
   ///
@@ -10047,6 +10107,18 @@ abstract class AppLocalizations {
   /// **'Open Download Page'**
   String get updateOpenDownloadPage;
 
+  /// No description provided for @updateUnfinished.
+  ///
+  /// In en, this message translates to:
+  /// **'BaoCode {version} wasn\'t installed: this is still {current}. Try again from Settings > Updates, or download it from baocode.dev.'**
+  String updateUnfinished(String version, String current);
+
+  /// No description provided for @updateShowLog.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Install Log'**
+  String get updateShowLog;
+
   /// No description provided for @updateReleaseNotes.
   ///
   /// In en, this message translates to:
@@ -10172,6 +10244,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Conversation width: {width}'**
   String appearanceSettingsChatWidthLabel(String width);
+
+  /// No description provided for @appearanceSettingsCodeFont.
+  ///
+  /// In en, this message translates to:
+  /// **'Code Font'**
+  String get appearanceSettingsCodeFont;
+
+  /// No description provided for @appearanceSettingsCodeFontDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The font code is drawn in: in the editor, the terminal, the chat and the previews. Family names in order, separated by commas, or a preset.'**
+  String get appearanceSettingsCodeFontDescription;
+
+  /// No description provided for @appearanceSettingsCodeFontDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get appearanceSettingsCodeFontDefault;
+
+  /// No description provided for @appearanceSettingsCodeFontField.
+  ///
+  /// In en, this message translates to:
+  /// **'Font families'**
+  String get appearanceSettingsCodeFontField;
+
+  /// No description provided for @appearanceSettingsCodeFontLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Code font: {font}'**
+  String appearanceSettingsCodeFontLabel(String font);
+
+  /// No description provided for @appearanceSettingsCodeSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Code Size'**
+  String get appearanceSettingsCodeSize;
+
+  /// No description provided for @appearanceSettingsCodeSizeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The size of code in the editor, the terminal, the chat and the previews.'**
+  String get appearanceSettingsCodeSizeDescription;
+
+  /// No description provided for @appearanceSettingsCodeSizeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Code size: {size}'**
+  String appearanceSettingsCodeSizeLabel(String size);
+
+  /// No description provided for @appearanceSettingsLigatures.
+  ///
+  /// In en, this message translates to:
+  /// **'Font Ligatures'**
+  String get appearanceSettingsLigatures;
+
+  /// No description provided for @appearanceSettingsLigaturesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Draws sequences such as => and != as one glyph where the font has one. The terminal does not.'**
+  String get appearanceSettingsLigaturesDescription;
+
+  /// No description provided for @appearanceSettingsUiScale.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface Text Size'**
+  String get appearanceSettingsUiScale;
+
+  /// No description provided for @appearanceSettingsUiScaleDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The size of the window\'s text. Code keeps its own size.'**
+  String get appearanceSettingsUiScaleDescription;
+
+  /// No description provided for @appearanceSettingsUiScaleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface text size: {percent}%'**
+  String appearanceSettingsUiScaleLabel(String percent);
 
   /// No description provided for @generalSettingsContextMenuFinder.
   ///

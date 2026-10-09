@@ -49,8 +49,14 @@ WizardStyle=modern
 ; The app is 64-bit only (flutter build windows is x64 here).
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Installing under Program Files needs elevation; per-user is offered instead
-; on a machine where the user cannot elevate.
+; Per user by default ({autopf} is then %LOCALAPPDATA%\Programs): neither
+; the install nor the app's updates ask for elevation, which a machine may
+; not grant (no admin; UAC set to elevate signed programs only, and Setup is
+; not signed) or show behind other windows. For all users (Program Files,
+; elevated) is the dialog's other choice; an update keeps the install mode
+; there is (UsePreviousPrivileges, and lib/update/installer_io.dart passes
+; it).
+PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 DisableProgramGroupPage=yes
 ; A running BaoCode is asked to close (it quits on WM_ENDSESSION, see
@@ -58,6 +64,10 @@ DisableProgramGroupPage=yes
 ; from before that, or one stuck, would otherwise hold Setup at "Closing
 ; applications..." for good.
 CloseApplications=force
+; Always a log (%TEMP%\Setup Log <date> #<n>.txt, or where /LOG= says, as
+; an update the app runs does): a silent install that fails says why only
+; there.
+SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -185,6 +195,44 @@ Filename: "{app}\baocode.exe"; Flags: nowait runasoriginaluser; \
   Check: RelaunchRequested
 
 [Code]
+const
+  SYNCHRONIZE = $00100000;
+  WaitPidTimeout = 120000;
+
+function OpenProcess(dwDesiredAccess: DWORD; bInheritHandle: BOOL;
+  dwProcessId: DWORD): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(hHandle: THandle; dwMilliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// An update the app runs (lib/update/installer_io.dart) starts Setup as the
+// app quits, with /WAITPID=<the app's process>, so the elevation it asks
+// for comes up in front of the app: it waits here (two minutes at most) for
+// the app to be gone before installing over it. One that does not go is
+// closed by CloseApplications=force.
+function InitializeSetup: Boolean;
+var
+  Pid: Integer;
+  App: THandle;
+begin
+  Result := True;
+  Pid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if Pid <= 0 then
+    Exit;
+  App := OpenProcess(SYNCHRONIZE, False, Pid);
+  if App = 0 then
+  begin
+    Log(Format('Process %d is gone already', [Pid]));
+    Exit;
+  end;
+  Log(Format('Waiting for process %d to quit', [Pid]));
+  if WaitForSingleObject(App, WaitPidTimeout) <> 0 then
+    Log(Format('Process %d is still running', [Pid]));
+  CloseHandle(App);
+end;
+
 // Whether the command line asks for the app to be opened after a silent
 // install (/RELAUNCH, an update's; see [Run]). Not silent, the finish
 // page's checkbox opens it.

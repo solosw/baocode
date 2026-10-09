@@ -2526,20 +2526,36 @@ class _WorkbenchState extends State<Workbench> implements WindowDelegate {
   void _closeSidePanelTab() {
     final thread = _agentThread ?? _workspace.current;
     if (thread == null) return;
+    // One with unsaved changes asks first whether to save them.
+    if (_sidePanel.tabsOf(thread.session).current case final tab?
+        when tab.dirty) {
+      unawaited(
+        closeSidePanelTabs(context, _sidePanel, thread.session, [tab]).then((
+          _,
+        ) {
+          if (mounted && _sidePanel.shown) _sidePanel.focusNode.requestFocus();
+        }),
+      );
+      return;
+    }
     _sidePanel.closeCurrent(thread.session);
     if (_sidePanel.shown) _sidePanel.focusNode.requestFocus();
   }
 
   Widget _withSidePanel(Widget child) => AgentSidePanelArea(
     panel: _sidePanel,
-    hidden: _sidePanelHidden,
-    // Under the conversation's title bar; at the top where the window's
-    // header (Windows) has its title.
-    railTop: _titleInHeader ? 12 : AppMetrics.titleBarHeight + 12,
+    // Customize, in place of the conversations, isn't one of theirs.
+    hidden: _sidePanelHidden || _customizing,
+    // Just under the conversation's title bar, whose right has the
+    // window's buttons on macOS; at the top under Windows' header, already
+    // a bar of its own (the title row's right is empty, the rail beside
+    // its column).
+    railTop: WindowControls.drawsHeader ? 12 : AppMetrics.titleBarHeight + 4,
     // Not in a narrow window, where the conversation has no room to spare
     // (the title bar's toggle shows the panel).
     rail: switch (_agentThread ?? _workspace.current) {
-      final thread? when !_narrow => _sidePanelRail(thread),
+      final thread? when !_narrow && !_customizing && !thread.untouched =>
+        _sidePanelRail(thread),
       _ => null,
     },
     builder: (context) => switch (_agentThread ?? _workspace.current) {

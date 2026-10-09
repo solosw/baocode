@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../ide/terminal/terminal_colors.dart';
 import '../platform/app_platform.dart';
+import 'code_font.dart';
 import 'workbench_theme.dart' hide ColorScheme;
 
 /// The app's colors, from the workbench's color theme: each is a VS Code
@@ -140,10 +142,17 @@ abstract final class AppColors {
   static Color get caution => _colors['editorWarning.foreground'];
 
   // Shell commands, in the terminal's colors: the program run, quoted
-  // strings, options.
-  static Color get syntaxCommand => _colors['terminal.ansiYellow'];
-  static Color get syntaxString => _colors['terminal.ansiMagenta'];
-  static Color get syntaxOption => _colors['terminal.ansiCyan'];
+  // strings, options. As the terminal resolves them ([terminalColorTheme]):
+  // the registry has no `terminal.ansi*` defaults, so a theme that sets none
+  // (Dark 2026, Dark Modern…) would leave them transparent. And as the
+  // terminal draws them on [code]: at its minimum contrast, or a light
+  // theme's yellow would hardly show.
+  static Color get syntaxCommand => _ansi(3); // yellow
+  static Color get syntaxString => _ansi(5); // magenta
+  static Color get syntaxOption => _ansi(6); // cyan
+
+  static Color _ansi(int index) =>
+      terminalContrast(terminalColorTheme.value.ansi[index], code);
 }
 
 /// Window chrome shared by the sidebar and the chat, so their edges line up.
@@ -174,15 +183,33 @@ abstract final class AppMetrics {
 }
 
 abstract final class AppFonts {
-  /// The font code, paths and commands are drawn in, as macOS has it.
-  static const mono = 'Menlo';
+  /// The font code, paths and commands are drawn in: the first of
+  /// [CodeFont.families], which the user may change.
+  static String get mono => CodeFont.families.value.first;
+
+  /// What code falls back on, in order: the families after [mono], then on
+  /// Windows [windowsFallbacks]. A family not installed is passed over.
+  static List<String> get monoFallbacks => [
+    ...CodeFont.families.value.skip(1),
+    if (AppPlatform.isWindows) ...windowsFallbacks,
+  ];
+
+  /// A style for code drawn at [size], as the code's size is moved (see
+  /// [CodeFont.sized]), in [mono] with [monoFallbacks], and with ligatures
+  /// as [CodeFont.features] says. The caller adds the color and the height.
+  static TextStyle codeStyle(double size) => TextStyle(
+    fontFamily: mono,
+    fontFamilyFallback: monoFallbacks,
+    fontFeatures: CodeFont.features,
+    fontSize: CodeFont.sized(size),
+  );
 
   /// What Windows falls back on. Set once, for all text, by the theme there
   /// (see [buildAppTheme]): a family the text names comes first, so this
   /// catches only what that family has not got.
   ///
-  /// The monospaced families come first for [mono], which is Menlo, and which
-  /// Windows has not got: code would otherwise be drawn in the proportional
+  /// The monospaced families come first for [mono], which Windows has not
+  /// got by default: code would otherwise be drawn in the proportional
   /// default.
   ///
   /// [Microsoft YaHei UI] is after them, for Chinese, which nothing above it

@@ -9,8 +9,10 @@ import '../../workspace/editor_launcher.dart';
 import '../side_panel/file_link.dart';
 import '../side_panel/file_open.dart';
 import 'code_citation.dart';
+import 'hover_scrollbar.dart';
 import 'inline_code.dart';
 import 'markdown_math.dart';
+import 'mermaid_code_block.dart';
 
 /// GitHub-flavored markdown as plain widgets (so a surrounding
 /// `SelectionArea` selects and copies it): headings, paragraphs, lists
@@ -28,11 +30,8 @@ class MarkdownView extends StatelessWidget {
       TextStyle(color: AppColors.text, fontSize: 13.5, height: 1.6);
 
   /// Inline code's, its background painted by [InlineCodeText].
-  static TextStyle get codeStyle => TextStyle(
-    color: AppColors.inlineCode,
-    fontFamily: AppFonts.mono,
-    fontSize: 12.5,
-  );
+  static TextStyle get codeStyle =>
+      AppFonts.codeStyle(12.5).copyWith(color: AppColors.inlineCode);
 
   /// The block syntaxes of its own, before GFM's: code citations and TeX.
   static const blockSyntaxes = <md.BlockSyntax>[
@@ -243,6 +242,9 @@ Widget? _block(md.Node node, TextStyle style, MarkdownOptions options) {
       }
       // `python title="a.py"`: the language is the first word.
       final name = language?.trim().split(RegExp(r'\s')).first;
+      if (name?.toLowerCase() == 'mermaid') {
+        return MermaidCodeBlock(code: body);
+      }
       return MarkdownCodeBlock(
         code: body,
         language: name == null || name.isEmpty ? null : name,
@@ -421,7 +423,6 @@ class _Table extends StatefulWidget {
 
 class _TableState extends State<_Table> {
   final _scroll = ScrollController();
-  bool _hovered = false;
 
   @override
   void dispose() {
@@ -497,18 +498,12 @@ class _TableState extends State<_Table> {
         ),
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
         clipBehavior: Clip.antiAlias,
-        child: MouseRegion(
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: Scrollbar(
+        child: HoverScrollbar(
+          controller: _scroll,
+          child: SingleChildScrollView(
             controller: _scroll,
-            thumbVisibility: _hovered,
-            interactive: true,
-            child: SingleChildScrollView(
-              controller: _scroll,
-              scrollDirection: Axis.horizontal,
-              child: table,
-            ),
+            scrollDirection: Axis.horizontal,
+            child: table,
           ),
         ),
       ),

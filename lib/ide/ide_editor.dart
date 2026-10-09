@@ -39,6 +39,7 @@ import 'git/git_blame.dart';
 import 'ide_commands.dart';
 import 'ide_find_widget.dart';
 import 'ide_menu.dart';
+import 'ide_status_bar.dart' show ideEolEdits;
 import 'ide_workspace.dart';
 import 'lsp/language_features.dart';
 import 'lsp/lsp_protocol.dart';
@@ -172,6 +173,10 @@ class IdeEditorState extends State<IdeEditor> {
   String? _syntaxText;
   int _syntaxRequest = 0;
   EditorLanguageSession? _language;
+
+  /// Each open document's last semantic tokens, for its next session to
+  /// paint at once when its tab is shown again.
+  final Map<IdeDocument, SemanticTokensSource> _semanticSources = {};
 
   /// Each open diff tab's diff and original side.
   final Map<IdeDocument, _DiffOriginal> _diffs = {};
@@ -353,6 +358,7 @@ class IdeEditorState extends State<IdeEditor> {
       onFocusEditor: focus,
       semanticTokenStyler: _semanticTokenStyler,
       languageId: _textMateDocuments[doc]?.$2.languageId ?? 'plaintext',
+      semanticSource: _semanticSources[doc],
     )..addListener(_languageChanged);
     _language!.l10n = _l10n;
   }
@@ -361,6 +367,10 @@ class IdeEditorState extends State<IdeEditor> {
     final session = _language;
     if (session == null) return;
     _language = null;
+    if (session.semanticSource case final source?
+        when widget.workspace.documents.contains(session.document)) {
+      _semanticSources[session.document] = source;
+    }
     session
       ..removeListener(_languageChanged)
       ..dispose();
@@ -968,6 +978,7 @@ class IdeEditorState extends State<IdeEditor> {
           if (identical(_language?.controller, controller)) {
             _disposeLanguageSession();
           }
+          _semanticSources.remove(entry.key);
           if (identical(_nativeController, controller)) {
             _nativeController = null;
             _focusNode.unfocus();
@@ -1506,6 +1517,24 @@ class IdeEditorState extends State<IdeEditor> {
     _controller.value = value.replaced(selection, text);
   }
 
+  /// Ends every line of the active document with [eol] (`\n` or `\r\n`) as
+  /// one undo step, the cursors kept where they were (VS Code's `pushEOL`).
+  void setEndOfLine(String eol) {
+    final doc = widget.active;
+    if (doc.readOnly) return;
+    final edits = ideEolEdits(doc.model.snapshot, eol);
+    if (edits.isEmpty) return;
+    if (_nativeControllers[doc] case final controller?
+        when widget.nativeEditorEnabled) {
+      controller.applyEdits(edits);
+      return;
+    }
+    doc.model.closeUndoGroup();
+    final changed = doc.model.applyOffsetEdits(edits);
+    doc.model.closeUndoGroup();
+    if (changed) widget.workspace.notifyDocumentChanged(doc);
+  }
+
   void _toggleFindOption(void Function() toggle) {
     setState(toggle);
     _refreshFindResults();
@@ -1854,12 +1883,9 @@ class IdeEditorState extends State<IdeEditor> {
         : (event) => _resolveKey(event).command,
   );
 
-  TextStyle _editorStyle(WorkbenchColors colors) => TextStyle(
-    color: colors['editor.foreground'],
-    fontFamily: AppFonts.mono,
-    fontSize: 13,
-    height: 1.45,
-  );
+  TextStyle _editorStyle(WorkbenchColors colors) =>
+      AppFonts.codeStyle(13)
+          .copyWith(color: colors['editor.foreground'], height: 1.45);
 
   /// The active document's editor; in a diff, the modified side, with
   /// what the diff gives it ([side]).
@@ -2024,10 +2050,8 @@ class IdeEditorState extends State<IdeEditor> {
                         enableSuggestions: false,
                         cursorColor: colors['editorCursor.foreground'],
                         onChanged: _changed,
-                        style: TextStyle(
+                        style: AppFonts.codeStyle(13).copyWith(
                           color: colors['editor.foreground'],
-                          fontFamily: AppFonts.mono,
-                          fontSize: 13,
                           height: 1.45,
                         ),
                         decoration: InputDecoration(

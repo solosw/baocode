@@ -104,6 +104,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String interactionHintBack(String keybinding) {
+    return '$keybinding to go back';
+  }
+
+  @override
   String interactionHintSkip(String keybinding) {
     return '$keybinding to skip';
   }
@@ -219,6 +224,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cmdChatInteractionFocusPrevious => 'Focus Previous Option';
+
+  @override
+  String get cmdChatInteractionBack => 'Back to Previous Question';
 
   @override
   String get cmdChatInteractionToggle => 'Toggle Option';
@@ -992,6 +1000,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cmdGotoLine => 'Go to Line/Column…';
+
+  @override
+  String get cmdChangeEol => 'Change End of Line Sequence';
 
   @override
   String get cmdFind => 'Find';
@@ -2071,6 +2082,22 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String pastedTextChip(int number) {
+    return 'Pasted text #$number';
+  }
+
+  @override
+  String pastedTextLines(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '+$count lines',
+      one: '+1 line',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get imageCopy => 'Copy Image';
 
   @override
@@ -2479,6 +2506,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get interactionNext => 'Next';
+
+  @override
+  String get interactionBack => 'Back';
 
   @override
   String interactionMoreLines(int count) {
@@ -4446,10 +4476,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get wbEncoding => 'Encoding';
 
   @override
-  String get wbEndOfLine => 'End of Line Sequence';
+  String get wbEolMixed => 'Mixed';
 
   @override
-  String get wbEolMixed => 'Mixed';
+  String get wbSelectEol => 'Select End of Line Sequence';
+
+  @override
+  String get wbEditorReadOnly => 'The active code editor is read-only.';
 
   @override
   String get wbLanguageMode => 'Language Mode';
@@ -4720,6 +4753,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String dataDirMoveInUse(String path) {
+    return '$path is in use by another program. Close that program, then try again.';
+  }
+
+  @override
   String get dataDirRestartTitle =>
       'Restart BaoCode to use the new data folder';
 
@@ -4852,6 +4890,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dataDirKeep => 'Keep';
+
+  @override
+  String get dataDirRemoveOldInUse =>
+      'Some of the old data could not be removed';
+
+  @override
+  String dataDirRemoveOldInUseDetail(String items) {
+    return 'Files in $items are in use, perhaps by another program. Everything else was removed; BaoCode offers to remove the rest the next time it starts.';
+  }
 
   @override
   String get impTitle => 'Import Keybindings';
@@ -6037,6 +6084,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateOpenDownloadPage => 'Open Download Page';
 
   @override
+  String updateUnfinished(String version, String current) {
+    return 'BaoCode $version wasn\'t installed: this is still $current. Try again from Settings > Updates, or download it from baocode.dev.';
+  }
+
+  @override
+  String get updateShowLog => 'Show Install Log';
+
+  @override
   String get updateReleaseNotes => 'Release Notes';
 
   @override
@@ -6110,6 +6165,55 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String appearanceSettingsChatWidthLabel(String width) {
     return 'Conversation width: $width';
+  }
+
+  @override
+  String get appearanceSettingsCodeFont => 'Code Font';
+
+  @override
+  String get appearanceSettingsCodeFontDescription =>
+      'The font code is drawn in: in the editor, the terminal, the chat and the previews. Family names in order, separated by commas, or a preset.';
+
+  @override
+  String get appearanceSettingsCodeFontDefault => 'Default';
+
+  @override
+  String get appearanceSettingsCodeFontField => 'Font families';
+
+  @override
+  String appearanceSettingsCodeFontLabel(String font) {
+    return 'Code font: $font';
+  }
+
+  @override
+  String get appearanceSettingsCodeSize => 'Code Size';
+
+  @override
+  String get appearanceSettingsCodeSizeDescription =>
+      'The size of code in the editor, the terminal, the chat and the previews.';
+
+  @override
+  String appearanceSettingsCodeSizeLabel(String size) {
+    return 'Code size: $size';
+  }
+
+  @override
+  String get appearanceSettingsLigatures => 'Font Ligatures';
+
+  @override
+  String get appearanceSettingsLigaturesDescription =>
+      'Draws sequences such as => and != as one glyph where the font has one. The terminal does not.';
+
+  @override
+  String get appearanceSettingsUiScale => 'Interface Text Size';
+
+  @override
+  String get appearanceSettingsUiScaleDescription =>
+      'The size of the window\'s text. Code keeps its own size.';
+
+  @override
+  String appearanceSettingsUiScaleLabel(String percent) {
+    return 'Interface text size: $percent%';
   }
 
   @override

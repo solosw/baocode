@@ -232,7 +232,17 @@ void main() {
       await service.download();
       expect(service.pending, isTrue);
       service.skip(service.release!);
-      expect(service.pending, isFalse);
+      expect(service.pending, isTrue, reason: 'skipped: not offered, shown');
+
+      // Skipped before it was found: not downloaded, the button there all
+      // the same.
+      final skipped = serviceOf(
+        FakeBackend(manifestOf('1.2.0')),
+        store: MemoryUpdateStore()..skippedVersion = '1.2.0',
+      );
+      await skipped.check();
+      expect(skipped.status, UpdateStatus.available);
+      expect(skipped.pending, isTrue);
 
       final mandatory = serviceOf(
         FakeBackend(manifestOf('1.2.0', minimumVersion: '1.1.0')),
@@ -320,6 +330,49 @@ void main() {
       expect(await service.launchArmed(), isTrue);
       expect(installer.launches, 1);
       expect(service.armed, isFalse);
+    });
+
+    test('an install that did not finish is told at the next launch', () async {
+      final store = MemoryUpdateStore();
+      final manual = FakeModeSetting(UpdateMode.manual);
+      final service = serviceOf(
+        FakeBackend(manifestOf('1.2.0')),
+        mode: manual,
+        store: store,
+      );
+      await service.check(manual: true);
+      final update = await service.prepare();
+      // A quit cancelled starts nothing, and keeps nothing.
+      service.arm(update);
+      service.disarm();
+      await service.launchArmed();
+      expect(store.installingVersion, isNull);
+
+      service.arm(update);
+      expect(await service.launchArmed(), isTrue);
+      expect(store.installingVersion, '1.2.0');
+      service.dispose();
+
+      // Still 1.0.0: it did not get there.
+      final again = serviceOf(FakeBackend(''), mode: manual, store: store)
+        ..start();
+      expect(again.unfinishedInstall, AppVersion.parse('1.2.0'));
+      expect(store.installingVersion, isNull, reason: 'looked at once');
+      expect(again.takeUnfinishedInstall(), AppVersion.parse('1.2.0'));
+      expect(again.unfinishedInstall, isNull, reason: 'told once');
+      again.dispose();
+
+      // 1.2.0: it did.
+      store.installingVersion = '1.2.0';
+      final updated = serviceOf(
+        FakeBackend(''),
+        mode: manual,
+        store: store,
+        current: '1.2.0',
+      )..start();
+      expect(updated.unfinishedInstall, isNull);
+      expect(store.installingVersion, isNull);
+      updated.dispose();
     });
 
     test('an install that will not start keeps the app, and says so', () async {

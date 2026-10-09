@@ -38,6 +38,7 @@ void main() {
       ('cache/claude-sessions.json', '{}'),
       ('icons/index.json', '[]'),
       ('workspaces/w1/web.code-workspace', '{"folders": []}'),
+      ('logs/errors.log', '--- BaoCode 1.0.1 ---\n'),
       ('Cookies', 'chromium'),
       ('GPUCache/data_0', 'chromium'),
       ('Local Storage/leveldb/LOG', 'chromium'),
@@ -165,6 +166,8 @@ void main() {
       'language-packs',
       'language-packs/toy',
       'language-packs/toy/manifest.json',
+      'logs',
+      'logs/errors.log',
       'notes.txt',
       'servers',
       'servers/tool',
@@ -187,8 +190,8 @@ void main() {
       Link(p.join(target, 'servers', 'tool-link')).targetSync(),
       p.join(target, 'servers', 'tool', 'bin', 'tool'),
     );
-    expect(progress.first, (0, 12));
-    expect(progress.last, (12, 12));
+    expect(progress.first, (0, 13));
+    expect(progress.last, (13, 13));
     // The old folder is as it was: the web view's files included.
     expect(File(p.join(current, 'Cookies')).existsSync(), isTrue);
     expect(File(p.join(current, 'state', 'state.json')).existsSync(), isTrue);
@@ -215,6 +218,110 @@ void main() {
       expect(pointer().existsSync(), isFalse);
     },
   );
+
+  test('a file removed or changed during the copy, git\'s locks and files '
+      'written aside', () async {
+    for (final (path, text) in [
+      ('checkpoints/app-1f/index.lock', ''),
+      ('checkpoints/app-1f/refs/heads/main.lock', ''),
+      ('User/settings.json.12.0.tmp', '{}'),
+    ]) {
+      File(p.join(current, path))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(text);
+    }
+    final target = folder('target');
+    final progress = <(int, int)>[];
+    await service().migrate(
+      target,
+      onProgress: (done, total) {
+        progress.add((done, total));
+        if (done != 1) return;
+        // Listed, not copied yet: one goes, one grows.
+        File(p.join(current, 'cache', 'claude-sessions.json')).deleteSync();
+        File(p.join(current, 'icons', 'index.json'))
+            .writeAsStringSync('[{"id": "a"}]');
+      },
+    );
+    final copied = tree(target);
+    expect(copied, contains('checkpoints/app-1f/HEAD'));
+    expect(copied, isNot(contains('checkpoints/app-1f/index.lock')));
+    expect(copied, isNot(contains('checkpoints/app-1f/refs/heads/main.lock')));
+    expect(copied, isNot(contains('User/settings.json.12.0.tmp')));
+    expect(copied, isNot(contains('cache/claude-sessions.json')));
+    expect(
+      File(p.join(target, 'icons', 'index.json')).readAsStringSync(),
+      '[{"id": "a"}]',
+    );
+    expect(progress.last, (13, 13));
+    expect(jsonDecode(pointer().readAsStringSync())['dataDir'], target);
+  });
+
+  group('retryWhileInUse', () {
+    FileSystemException inUse() => const FileSystemException(
+      'Cannot open file',
+      'x',
+      OSError('The process cannot access the file', 32),
+    );
+    bool windows(FileSystemException error) =>
+        isFileInUse(error, windows: true);
+    const delays = [Duration.zero, Duration.zero];
+
+    test('tries again while a file is in use', () async {
+      var tries = 0;
+      final result = await retryWhileInUse(
+        () async {
+          if (++tries < 3) throw inUse();
+          return 'done';
+        },
+        delays: delays,
+        inUse: windows,
+      );
+      expect((result, tries), ('done', 3));
+    });
+
+    test('gives up after the last delay, and at once on other '
+        'errors', () async {
+      var tries = 0;
+      await expectLater(
+        retryWhileInUse<void>(
+          () async {
+            tries++;
+            throw inUse();
+          },
+          delays: delays,
+          inUse: windows,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(tries, 3);
+      tries = 0;
+      await expectLater(
+        retryWhileInUse<void>(
+          () async {
+            tries++;
+            throw const FileSystemException('No', 'x', OSError('Gone', 2));
+          },
+          delays: delays,
+          inUse: windows,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(tries, 1);
+    });
+
+    test('what is in use on Windows and elsewhere', () {
+      FileSystemException code(int code) =>
+          FileSystemException('', '', OSError('', code));
+      for (final windowsCode in [5, 32, 33, 145, 1224]) {
+        expect(isFileInUse(code(windowsCode), windows: true), isTrue);
+      }
+      expect(isFileInUse(code(2), windows: true), isFalse);
+      expect(isFileInUse(code(16), windows: false), isTrue);
+      expect(isFileInUse(code(32), windows: false), isFalse);
+      expect(isFileInUse(const FileSystemException('')), isFalse);
+    });
+  });
 
   test('a folder with BaoCode data is used as it is', () async {
     final target = folder('target', files: ['User/settings.json']);
@@ -249,7 +356,7 @@ void main() {
     final next = service(target);
     expect(next.previousDirectory, current);
     expect(DataDirectoryService.leftoverItems(current), DataDirectory.items);
-    await next.removeOldData(current);
+    expect(await next.removeOldData(current), isEmpty);
     expect(tree(current), [
       'Cookies',
       'GPUCache',
@@ -263,6 +370,28 @@ void main() {
     expect(jsonDecode(pointer().readAsStringSync()), {'dataDir': target});
     // The folder in use is never removed.
     expect(() => next.removeOldData(target), throwsArgumentError);
+  });
+
+  test('what cannot be removed of the old data is offered again; the rest '
+      'goes', () async {
+    final target = folder('target');
+    await service().migrate(target);
+    // A file that cannot go, beside one that can.
+    File(p.join(current, 'checkpoints', 'app-2b', 'HEAD'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('');
+    final stuck = p.join(current, 'checkpoints', 'app-1f');
+    Process.runSync('chmod', ['555', stuck]);
+
+    final next = service(target);
+    expect(await next.removeOldData(current), ['checkpoints']);
+    expect(tree(p.join(current, 'checkpoints')), ['app-1f', 'app-1f/HEAD']);
+    expect(DataDirectoryService.leftoverItems(current), ['checkpoints']);
+    expect(next.previousDirectory, current);
+
+    Process.runSync('chmod', ['755', stuck]);
+    expect(await next.removeOldData(current), isEmpty);
+    expect(next.previousDirectory, isNull);
   });
 
   test('keeping the old data forgets it; an invalid pointer is left '

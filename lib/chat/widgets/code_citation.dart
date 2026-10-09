@@ -195,24 +195,39 @@ class CodeCitationCard extends StatelessWidget {
 
 /// A fenced code block as a [CodeCitationCard] is, its language (the
 /// first word of the fence's info string) for a title and no line numbers.
+/// Plain text (no language, or `text`) has no title, so does not fold.
 class MarkdownCodeBlock extends StatelessWidget {
-  const MarkdownCodeBlock({super.key, required this.code, this.language});
+  const MarkdownCodeBlock({
+    super.key,
+    required this.code,
+    this.language,
+    this.onPreview,
+  });
 
   final String code;
   final String? language;
 
+  /// Back to what the source draws (a diagram), from the title.
+  final VoidCallback? onPreview;
+
   @override
   Widget build(BuildContext context) =>
-      _CodeCard(code: code, language: language);
+      _CodeCard(code: code, language: language, onPreview: onPreview);
 }
 
 /// A [citation]'s card, or a code block's in [language] without one.
 class _CodeCard extends StatefulWidget {
-  const _CodeCard({required this.code, this.citation, this.language});
+  const _CodeCard({
+    required this.code,
+    this.citation,
+    this.language,
+    this.onPreview,
+  });
 
   final String code;
   final CodeCitation? citation;
   final String? language;
+  final VoidCallback? onPreview;
 
   @override
   State<_CodeCard> createState() => _CodeCardState();
@@ -314,34 +329,79 @@ class _CodeCardState extends State<_CodeCard> {
     });
   }
 
+  /// Plain text: a fence that names no language, nor a file.
+  bool get _plain =>
+      widget.citation == null &&
+      widget.onPreview == null &&
+      switch (widget.language?.toLowerCase()) {
+        null || 'text' || 'txt' || 'plaintext' => true,
+        _ => false,
+      };
+
   @override
   Widget build(BuildContext context) {
     final colors = themeColors;
     final line = colors['chat.requestBorder'];
+    final background = colors['textCodeBlock.background'];
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: Container(
         decoration: BoxDecoration(
-          color: colors['textCodeBlock.background'],
+          color: background,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: line),
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _title(context),
-            if (_expanded) ...[
-              Divider(height: 1, thickness: 1, color: line),
-              _body(),
-            ],
-          ],
-        ),
+        child: _plain
+            // No title to fold it by: the text, the copy button over its
+            // corner.
+            ? Stack(
+                children: [
+                  _body(),
+                  Positioned(
+                    top: 5,
+                    right: 6,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        // Opaque, to hide the text under it: the card's
+                        // color is often a see-through one.
+                        color: Color.alphaBlend(
+                          background,
+                          colors['editor.background'],
+                        ),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: _copyButton(context),
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _title(context),
+                  if (_expanded) ...[
+                    Divider(height: 1, thickness: 1, color: line),
+                    _body(),
+                  ],
+                ],
+              ),
       ),
     );
   }
+
+  Widget _copyButton(BuildContext context) => SelectionContainer.disabled(
+    child: Visibility.maintain(
+      visible: _hovered || _copied,
+      child: CodeBlockIconButton(
+        icon: _copied ? Codicons.check : Codicons.copy,
+        tooltip: context.l10n.commonCopy,
+        onTap: _copy,
+      ),
+    ),
+  );
 
   /// The chevron and the empty space fold it; the file opens it there.
   Widget _title(BuildContext context) {
@@ -360,7 +420,7 @@ class _CodeCardState extends State<_CodeCard> {
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
             child: Row(
               children: [
-                _IconButton(
+                CodeBlockIconButton(
                   icon: _expanded
                       ? Codicons.chevronDown
                       : Codicons.chevronRight,
@@ -388,14 +448,13 @@ class _CodeCardState extends State<_CodeCard> {
                     },
                   ),
                 ),
-                Visibility.maintain(
-                  visible: _hovered || _copied,
-                  child: _IconButton(
-                    icon: _copied ? Codicons.check : Codicons.copy,
-                    tooltip: l10n.commonCopy,
-                    onTap: _copy,
+                if (widget.onPreview case final onPreview?)
+                  CodeBlockIconButton(
+                    icon: Codicons.preview,
+                    tooltip: l10n.sidePanelPreview,
+                    onTap: onPreview,
                   ),
-                ),
+                _copyButton(context),
               ],
             ),
           ),
@@ -458,16 +517,14 @@ class _CodeCardState extends State<_CodeCard> {
   }
 
   /// Line numbers from the citation's first, beside the code; both scroll
-  /// down together, the code alone sideways. A code block has none.
+  /// down together, the code alone sideways. A code block has none. Both
+  /// scrollbars at the edges of the card, not of the code as long as it
+  /// is.
   Widget _body() {
     final lines = widget.code.split('\n');
     final citation = widget.citation;
-    final style = TextStyle(
-      color: themeColors['editor.foreground'],
-      fontFamily: AppFonts.mono,
-      fontSize: 12,
-      height: 1.5,
-    );
+    final style = AppFonts.codeStyle(12)
+        .copyWith(color: themeColors['editor.foreground'], height: 1.5);
     final numbers = switch (citation) {
       final citation? => SelectionContainer.disabled(
         child: Padding(
@@ -483,6 +540,14 @@ class _CodeCardState extends State<_CodeCard> {
         ),
       ),
       null => const SizedBox(width: 12),
+    };
+    // Where the code starts: the sideways scrollbar's track from there.
+    final gutter = switch (citation) {
+      final citation? => _numbersWidth(
+        '${citation.start + lines.length - 1}',
+        style,
+      ),
+      null => 12.0,
     };
     final code = Text.rich(
       TextSpan(
@@ -505,44 +570,62 @@ class _CodeCardState extends State<_CodeCard> {
       constraints: const BoxConstraints(
         maxHeight: CodeCitationCard.maxCodeHeight,
       ),
-      child: Scrollbar(
-        controller: _vertical,
-        thumbVisibility: _hovered,
-        child: SingleChildScrollView(
-          controller: _vertical,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: WheelLatch(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                numbers,
-                Expanded(
-                  child: Scrollbar(
-                    controller: _horizontal,
-                    thumbVisibility: _hovered,
-                    // Not the vertical one's.
-                    notificationPredicate: (notification) =>
-                        notification.metrics.axis == Axis.horizontal,
-                    child: SingleChildScrollView(
-                      controller: _horizontal,
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.only(right: 12),
-                      child: code,
+      // The scrollbar's padding is the media's.
+      child: MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(padding: EdgeInsets.only(left: gutter)),
+        child: Scrollbar(
+          controller: _horizontal,
+          thumbVisibility: _hovered,
+          // The code's, inside the vertical one.
+          notificationPredicate: (notification) =>
+              notification.metrics.axis == Axis.horizontal,
+          child: Scrollbar(
+            controller: _vertical,
+            thumbVisibility: _hovered,
+            child: SingleChildScrollView(
+              controller: _vertical,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: WheelLatch(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    numbers,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _horizontal,
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.only(right: 12),
+                        child: code,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  /// The line numbers' width with their padding: as wide as the last.
+  double _numbersWidth(String last, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: last, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width + 12 + 14;
+  }
 }
 
-/// A small icon button of the card's title.
-class _IconButton extends StatelessWidget {
-  const _IconButton({
+/// A small icon button of a code card's title, or a diagram's toolbar.
+class CodeBlockIconButton extends StatelessWidget {
+  const CodeBlockIconButton({
+    super.key,
     required this.icon,
     required this.tooltip,
     required this.onTap,

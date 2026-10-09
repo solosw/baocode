@@ -24,6 +24,7 @@ import 'icons/emoji_sheet.dart';
 import 'icons/icon_library.dart';
 import 'icons/icon_storage.dart';
 import 'kernel/acp_agents.dart';
+import 'kernel/claude_code/claude_onboarding.dart';
 import 'kernel/claude_code/process_transport.dart';
 import 'kernel/commit_attribution.dart';
 import 'kernel/kernel_registry.dart';
@@ -37,6 +38,7 @@ import 'notifications/attention_host.dart';
 import 'notifications/attention_settings.dart';
 import 'platform/app_platform.dart';
 import 'platform/data_dir.dart';
+import 'platform/error_log.dart';
 import 'platform/open_requests.dart';
 import 'remote/project_host.dart';
 import 'remote/remote_claude.dart';
@@ -51,6 +53,7 @@ import 'telemetry/telemetry_platform.dart';
 import 'telemetry/telemetry_service.dart';
 import 'telemetry/telemetry_store.dart';
 import 'theme/app_theme.dart';
+import 'theme/code_font.dart';
 import 'theme/workbench_theme.dart';
 import 'update/update_controller.dart';
 import 'update/update_platform.dart';
@@ -74,6 +77,7 @@ Future<void> main(List<String> arguments) async {
   // All the app keeps is in its data folder: found first, once. One the
   // user set that cannot be used (a drive gone) is reported before the app
   // shows, never swapped for the default unasked.
+  ErrorLog? errors;
   if (!kIsWeb) {
     final resolution = resolveDataDirectory();
     if (resolution.ok) {
@@ -82,11 +86,15 @@ Future<void> main(List<String> arguments) async {
       WidgetsFlutterBinding.ensureInitialized();
       DataDirectory.current = await recoverDataDirectory(resolution);
     }
+    // What goes wrong unseen from here on, kept for the user to send.
+    errors = ErrorLog(DataDirectory.current.logsDir)..install();
   }
   unawaited(reapClaudeProcesses());
   unawaited(reapLspProcesses());
   unawaited(reapPtyProcesses());
   WidgetsFlutterBinding.ensureInitialized();
+  // The Windows app's own logs go beside it.
+  if (errors != null) unawaited(errors.shareWithHost());
   // Emoji as pictures: fetched into the cache the first run, in the
   // background.
   EmojiSheet.start(EmojiSheetStore.cache());
@@ -110,7 +118,11 @@ Future<void> main(List<String> arguments) async {
       files.settings,
       () => files.settings[ChatWidth.settingKey],
     );
+    // Settings → Appearance: the code's font, size and ligatures, and the
+    // window's text size.
+    CodeFont.follow(files.settings, (key) => files.settings[key]);
   }
+  await prepareClaudeOnboarding();
   final locale = AppLocale(storage: files?.argv);
   AcpAgents? acpAgents;
   if (files != null) {
@@ -279,6 +291,7 @@ UpdateController? _startUpdates(SettingsFiles files) {
       await ServicesBinding.instance.exitApplication(AppExitType.cancelable);
     },
     openUrl: (url) => openExternal('$url'),
+    openFile: openExternal,
   );
 }
 
@@ -461,7 +474,15 @@ class _BaoCodeAppState extends State<BaoCodeApp> {
       builder: (context) => AppLocaleScope(
         notifier: _locale,
         child: ListenableBuilder(
-          listenable: _locale,
+          // The code's font, size and ligatures are read as the app is
+          // built, so a change rebuilds it; the text scale is a MediaQuery
+          // instead (see the builder in _app).
+          listenable: Listenable.merge([
+            _locale,
+            CodeFont.families,
+            CodeFont.size,
+            CodeFont.ligatures,
+          ]),
           builder: (context, _) => _windows.started
               ? ListenableBuilder(
                   listenable: _windows,
@@ -494,6 +515,21 @@ class _BaoCodeAppState extends State<BaoCodeApp> {
     title: 'BaoCode',
     debugShowCheckedModeBanner: false,
     theme: buildAppTheme(),
+    builder: (context, child) => ValueListenableBuilder<int>(
+      valueListenable: CodeFont.uiScale,
+      builder: (context, percent, scaled) {
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: TextScaler.linear(
+              media.textScaler.scale(1) * percent / 100,
+            ),
+          ),
+          child: scaled!,
+        );
+      },
+      child: child,
+    ),
     locale: _locale.locale,
     supportedLocales: AppLocale.supportedLocales,
     localizationsDelegates: const [

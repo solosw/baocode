@@ -103,6 +103,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String interactionHintBack(String keybinding) {
+    return '$keybinding 上一步';
+  }
+
+  @override
   String interactionHintSkip(String keybinding) {
     return '$keybinding 跳过';
   }
@@ -218,6 +223,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get cmdChatInteractionFocusPrevious => '聚焦上一个选项';
+
+  @override
+  String get cmdChatInteractionBack => '返回上一题';
 
   @override
   String get cmdChatInteractionToggle => '切换选项';
@@ -961,6 +969,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get cmdGotoLine => '转到行/列…';
+
+  @override
+  String get cmdChangeEol => '更改行尾序列';
 
   @override
   String get cmdFind => '查找';
@@ -2011,6 +2022,21 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String pastedTextChip(int number) {
+    return '粘贴的文本 #$number';
+  }
+
+  @override
+  String pastedTextLines(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '+$count 行',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get imageCopy => '复制图片';
 
   @override
@@ -2400,6 +2426,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get interactionNext => '下一步';
+
+  @override
+  String get interactionBack => '上一步';
 
   @override
   String interactionMoreLines(int count) {
@@ -4151,10 +4180,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wbEncoding => '编码';
 
   @override
-  String get wbEndOfLine => '行尾序列';
+  String get wbEolMixed => '混合';
 
   @override
-  String get wbEolMixed => '混合';
+  String get wbSelectEol => '选择行尾序列';
+
+  @override
+  String get wbEditorReadOnly => '活动代码编辑器为只读模式。';
 
   @override
   String get wbLanguageMode => '语言模式';
@@ -4408,6 +4440,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String dataDirMoveInUse(String path) {
+    return '$path 正被其他程序占用。请关闭该程序后重试。';
+  }
+
+  @override
   String get dataDirRestartTitle => '重启 BaoCode 以使用新的数据文件夹';
 
   @override
@@ -4536,6 +4573,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get dataDirKeep => '保留';
+
+  @override
+  String get dataDirRemoveOldInUse => '部分旧数据未能移除';
+
+  @override
+  String dataDirRemoveOldInUseDetail(String items) {
+    return '$items 中有文件正在使用(可能被其他程序占用)。其余内容均已移除；BaoCode 下次启动时会再次询问是否移除剩下的部分。';
+  }
 
   @override
   String get impTitle => '导入快捷键';
@@ -5664,6 +5709,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateOpenDownloadPage => '打开下载页';
 
   @override
+  String updateUnfinished(String version, String current) {
+    return 'BaoCode $version 没有装上，当前仍是 $current。可以在“设置 → 更新”里重试，或者从 baocode.dev 下载安装。';
+  }
+
+  @override
+  String get updateShowLog => '查看安装日志';
+
+  @override
   String get updateReleaseNotes => '更新日志';
 
   @override
@@ -5734,6 +5787,53 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String appearanceSettingsChatWidthLabel(String width) {
     return '对话宽度：$width';
+  }
+
+  @override
+  String get appearanceSettingsCodeFont => '代码字体';
+
+  @override
+  String get appearanceSettingsCodeFontDescription =>
+      '代码使用的字体：编辑器、终端、对话和预览中的代码。按顺序输入字体名，用逗号分隔，或从预设中选择。';
+
+  @override
+  String get appearanceSettingsCodeFontDefault => '默认';
+
+  @override
+  String get appearanceSettingsCodeFontField => '字体名';
+
+  @override
+  String appearanceSettingsCodeFontLabel(String font) {
+    return '代码字体：$font';
+  }
+
+  @override
+  String get appearanceSettingsCodeSize => '代码字号';
+
+  @override
+  String get appearanceSettingsCodeSizeDescription => '编辑器、终端、对话和预览中代码的字号。';
+
+  @override
+  String appearanceSettingsCodeSizeLabel(String size) {
+    return '代码字号：$size';
+  }
+
+  @override
+  String get appearanceSettingsLigatures => '字体连字';
+
+  @override
+  String get appearanceSettingsLigaturesDescription =>
+      '字体有对应字形时，把 => 、!= 等组合画成一个字形。终端不使用连字。';
+
+  @override
+  String get appearanceSettingsUiScale => '界面文字大小';
+
+  @override
+  String get appearanceSettingsUiScaleDescription => '缩放窗口的文字，代码的字号不变。';
+
+  @override
+  String appearanceSettingsUiScaleLabel(String percent) {
+    return '界面文字大小：$percent%';
   }
 
   @override

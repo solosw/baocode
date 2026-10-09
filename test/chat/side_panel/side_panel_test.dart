@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:baocode/chat/chat_models.dart';
 import 'package:baocode/kernel/kernel_types.dart';
@@ -19,8 +20,11 @@ import 'package:baocode/ide/file_service.dart';
 import 'package:baocode/ide/git/commit_message.dart';
 import 'package:baocode/ide/git/git_repository.dart';
 import 'package:baocode/ide/ide_button.dart';
+import 'package:baocode/ide/ide_code_editor.dart';
 import 'package:baocode/ide/ide_explorer.dart';
+import 'package:baocode/ide/ide_hover.dart' show IdeActionButton;
 import 'package:baocode/ide/ide_list.dart';
+import 'package:baocode/ide/terminal/terminal_instance.dart';
 import 'package:baocode/ide/terminal/terminal_service.dart';
 import 'package:baocode/ide/terminal/terminal_view.dart';
 import 'package:baocode/ide/tab_strip_scroll.dart';
@@ -60,6 +64,12 @@ class _Files implements IdeFileService {
       reader?.call(path) ??
       texts[path] ??
       (throw IdeFileNotFoundException(path));
+
+  @override
+  Future<void> write(String path, String text, {String? expectedText}) async {
+    if (texts[path] != expectedText) throw IdeFileConflictException(path);
+    texts[path] = text;
+  }
 
   @override
   Future<List<IdeFile>> list(String directory) async {
@@ -221,6 +231,34 @@ final _dragCover = find.byWidgetPredicate(
 SidePanelTab? _active(AgentSidePanel panel, ChatSession session) =>
     panel.tabsOf(session).current;
 
+/// The side panel's editor's text and caret.
+TextEditingValue _edited(WidgetTester tester) =>
+    tester.widget<IdeCodeEditor>(find.byType(IdeCodeEditor)).controller.value;
+
+/// The terminal a background command's output shows in.
+TerminalInstance _previewTerminal(WidgetTester tester) => tester
+    .widget<TerminalView>(
+      find.descendant(
+        of: find.byType(TerminalPreview),
+        matching: find.byType(TerminalView),
+      ),
+    )
+    .instance;
+
+/// What that terminal shows, once what was printed is parsed: its lines,
+/// wrapped ones joined.
+Future<String> _previewScreen(WidgetTester tester) async {
+  await tester.pump(const Duration(milliseconds: 20));
+  final lines = _previewTerminal(tester).terminal.buffer.lines;
+  final text = StringBuffer();
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines.get(i)!;
+    if (i > 0 && !line.isWrapped) text.write('\n');
+    text.write(line.translateToString(true));
+  }
+  return text.toString().trimRight();
+}
+
 void main() {
   testWidgets('completion queues a final read; hiding cancels polling', (
     tester,
@@ -258,7 +296,7 @@ void main() {
     expect(reads, 2);
     last.complete('final output');
     await tester.pumpAndSettle();
-    expect(find.textContaining('final output'), findsOneWidget);
+    expect(await _previewScreen(tester), 'final output');
     await tester.pump(const Duration(seconds: 5));
     expect(reads, 2);
     task.value = task.value.copyWith(status: CommandStatus.running);
@@ -288,15 +326,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('test  ·  Failed'), findsOneWidget);
     expect(find.textContaining('Output unavailable:'), findsOneWidget);
-    expect(find.textContaining('command failed'), findsOneWidget);
+    expect(await _previewScreen(tester), 'command failed');
     files.texts['/tmp/missing.output'] = 'recovered output';
     await tester.tap(find.byIcon(Codicons.refresh));
     await tester.pumpAndSettle();
-    expect(find.textContaining('recovered output'), findsOneWidget);
+    // Not what it showed with more: printed again, on a reset screen.
+    expect(await _previewScreen(tester), 'recovered output');
     expect(find.textContaining('Output unavailable:'), findsNothing);
   });
 
-  testWidgets('lines selected in a preview copy one to a line, and paste '
+  testWidgets('a background command is colored as in the chat', (tester) async {
+    final task = KernelTask(
+      id: 'grep',
+      description: 'Search',
+      kind: KernelTaskKind.command,
+      status: CommandStatus.succeeded,
+      startedAt: DateTime.now(),
+      summary: 'done',
+    );
+    await tester.pumpWidget(
+      _app(
+        TerminalPreview(
+          task: task,
+          command: 'grep -rn "x" .',
+          files: _Files({}),
+          onStop: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(await _previewScreen(tester), '\$ grep -rn "x" .\ndone');
+    // In the terminal's own yellow, cyan and magenta, which the chat's are.
+    final line = _previewTerminal(tester).xterm.buffer.active.getLine(0)!;
+    int? color(int x) {
+      final cell = line.getCell(x)!;
+      return cell.isFgPalette() ? cell.getFgColor() : null;
+    }
+
+    expect([color(2), color(7), color(11), color(15)], [3, 6, 5, null]);
+  });
+
+  testWidgets('a running command waits for output, then has only what '
+      'it added printed', (tester) async {
+    final files = _Files({'/tmp/run.output': ''});
+    final task = KernelTask(
+      id: 'run',
+      description: 'Run',
+      kind: KernelTaskKind.command,
+      status: CommandStatus.running,
+      startedAt: DateTime.now(),
+      outputFile: '/tmp/run.output',
+    );
+    await tester.pumpWidget(
+      _app(TerminalPreview(task: task, files: files, onStop: () {})),
+    );
+    expect(await _previewScreen(tester), 'Waiting for output');
+    final printed = <String>[];
+    final listening = _previewTerminal(tester).output
+        .listen((data) => printed.add(utf8.decode(data)));
+    addTearDown(listening.cancel);
+    files.texts['/tmp/run.output'] = 'one\n';
+    await tester.pump(const Duration(seconds: 1));
+    expect(await _previewScreen(tester), 'one');
+    files.texts['/tmp/run.output'] = 'one\n\x1b[31mtwo\x1b[0m\n';
+    await tester.pump(const Duration(seconds: 1));
+    expect(await _previewScreen(tester), 'one\ntwo');
+    expect(printed.last, '\x1b[31mtwo\x1b[0m\n');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('lines selected in a diff copy one to a line, and paste '
       'into the composer as a reference to them', (tester) async {
     addTearDown(CopiedCode.clear);
     String? copied;
@@ -318,7 +417,11 @@ void main() {
     await tester.pumpWidget(
       _app(
         FilePreview(
-          request: const FileOpenRequest('/p/a.dart'),
+          request: FileOpenRequest(
+            '/p/a.dart',
+            diff: true,
+            original: () async => 'one\ntwo\nthree',
+          ),
           files: _Files({'/p/a.dart': 'one\ntwo\nthree'}),
         ),
       ),
@@ -497,6 +600,68 @@ void main() {
     );
   });
 
+  testWidgets('the terminal rail badge counts running background commands', (
+    tester,
+  ) async {
+    final (:session, :cli) = await pumpScripted(tester);
+    await tester.pumpWidget(
+      _app(
+        Align(
+          alignment: Alignment.topLeft,
+          child: SidePanelRail(onSelect: (_) {}, session: session),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    for (final id in ['one', 'two']) {
+      cli.push({
+        'type': 'system',
+        'subtype': 'task_started',
+        'task_id': id,
+        'task_type': 'local_bash',
+        'is_backgrounded': true,
+        'description': 'command $id',
+        'output_file': '/tmp/$id.output',
+      });
+    }
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final badge = ValueKey(('rail', SidePanelSection.terminal));
+    expect(find.byKey(badge), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(badge), matching: find.text('2')),
+      findsOneWidget,
+    );
+
+    cli.push({
+      'type': 'system',
+      'subtype': 'task_notification',
+      'task_id': 'one',
+      'status': 'completed',
+      'output_file': '/tmp/one.output',
+      'summary': 'done',
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.descendant(of: find.byKey(badge), matching: find.text('1')),
+      findsOneWidget,
+    );
+
+    cli.push({
+      'type': 'system',
+      'subtype': 'task_notification',
+      'task_id': 'two',
+      'status': 'completed',
+      'output_file': '/tmp/two.output',
+      'summary': 'done',
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(badge), findsNothing);
+  });
+
   testWidgets('two levels keep the selected file when switching sections', (
     tester,
   ) async {
@@ -535,13 +700,7 @@ void main() {
     await tester.tap(find.descendant(of: list, matching: find.text('b.dart')));
     await tester.pumpAndSettle();
     expect(_active(panel, session)!.path, '/p/b.dart');
-    expect(
-      find.descendant(
-        of: find.byType(FilePreview),
-        matching: find.text('beta'),
-      ),
-      findsOneWidget,
-    );
+    expect(_edited(tester).text, 'beta');
 
     // The list hides, and comes back as wide as dragged.
     final width = tester.getSize(list).width;
@@ -1086,18 +1245,17 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(TerminalPreview), findsOneWidget);
       expect(panel.tabsOf(session).terminal, 'one');
-      expect(find.textContaining('first output'), findsOneWidget);
       expect(
-        find.descendant(
-          of: find.byType(TerminalPreview),
-          matching: find.text(r'$ sleep 120 && echo one'),
-        ),
-        findsOneWidget,
+        await _previewScreen(tester),
+        '\$ sleep 120 && echo one\nfirst output',
       );
       files.texts['/tmp/one.output'] = 'first output\nnew output';
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
-      expect(find.textContaining('new output'), findsOneWidget);
+      expect(
+        await _previewScreen(tester),
+        '\$ sleep 120 && echo one\nfirst output\nnew output',
+      );
       // Each command is a row of the list; its output opens in a tab.
       final list = find.byKey(const ValueKey('side-panel-terminals'));
       expect(
@@ -1109,16 +1267,9 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.textContaining('second output'), findsOneWidget);
       expect(panel.tabsOf(session).terminals, ['one', 'two']);
       // Its command not known, its output alone.
-      expect(
-        find.descendant(
-          of: find.byType(TerminalPreview),
-          matching: find.textContaining(r'$ '),
-        ),
-        findsNothing,
-      );
+      expect(await _previewScreen(tester), 'second output');
       final preview = find.byType(TerminalPreview);
       await tester.tap(
         find.descendant(of: preview, matching: find.byIcon(Codicons.debugStop)),
@@ -1145,7 +1296,7 @@ void main() {
       panel.closeTerminal(session, 'two');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.textContaining('first output'), findsOneWidget);
+      expect(await _previewScreen(tester), contains('first output'));
       panel.hide();
       await tester.pump();
       expect(find.byType(SidePanelRail), findsOneWidget);
@@ -1272,13 +1423,7 @@ void main() {
     expect(tab.diff, isFalse);
     expect(tab.request.range, const FileLineRange(1, 562));
     expect(find.byType(FilePreview), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byType(FilePreview),
-        matching: find.text('main line 3'),
-      ),
-      findsOneWidget,
-    );
+    expect(_edited(tester).text, _main);
   });
 
   testWidgets('an edit opens to its diff in place; the file\'s name over it '
@@ -1369,6 +1514,101 @@ void main() {
     );
   });
 
+  testWidgets('a file is edited in the side panel: its tab marks it unsaved, '
+      'keeps the edit behind another, and Ctrl+S saves it', (tester) async {
+    final (:panel, :session, :files) = await _pumpChat(
+      tester,
+      texts: {'/p/a.dart': 'alpha', '/p/b.dart': 'beta'},
+    );
+    panel.open(session, const FileOpenRequest('/p/a.dart'));
+    await tester.pumpAndSettle();
+    final tab = _active(panel, session)!;
+    final dot = find.descendant(
+      of: find.byType(TabStripScroll),
+      matching: find.byIcon(Codicons.circleFilled),
+    );
+    await tester.tap(find.byType(IdeCodeEditor));
+    await tester.pump();
+    tester.widget<IdeCodeEditor>(find.byType(IdeCodeEditor)).controller
+      ..selectAll()
+      ..replaceSelection('alpha!');
+    await tester.pump();
+    expect(tab.dirty, isTrue);
+
+    // Behind another tab, the edit is kept, and marked.
+    panel.open(session, const FileOpenRequest('/p/b.dart'));
+    await tester.pumpAndSettle();
+    expect(dot, findsOneWidget);
+    panel.activate(session, tab);
+    await tester.pumpAndSettle();
+    expect(_edited(tester).text, 'alpha!');
+
+    await tester.tap(find.byType(IdeCodeEditor));
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(files.texts['/p/a.dart'], 'alpha!');
+    expect(tab.dirty, isFalse);
+    expect(dot, findsNothing);
+  });
+
+  testWidgets('a file changed on disk since it was read is not saved over; '
+      'closing its tab asks to save it', (tester) async {
+    final (:panel, :session, :files) = await _pumpChat(
+      tester,
+      texts: {'/p/a.dart': 'alpha'},
+    );
+    panel.open(session, const FileOpenRequest('/p/a.dart'));
+    await tester.pumpAndSettle();
+    final tab = _active(panel, session)!;
+    tester.widget<IdeCodeEditor>(find.byType(IdeCodeEditor)).controller
+      ..selectAll()
+      ..replaceSelection('mine');
+    await tester.pump();
+    files.texts['/p/a.dart'] = 'theirs';
+
+    final close = find.descendant(
+      of: find.byType(TabStripScroll),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is IdeActionButton && widget.icon == Codicons.close,
+      ),
+    );
+    // Unsaved: a dot in place of its Close, there while hovered.
+    expect(close, findsNothing);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+      location: tester.getCenter(
+        find.descendant(
+          of: find.byType(TabStripScroll),
+          matching: find.text('a.dart'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Do you want to save the changes you made to a.dart?'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    // Not saved over theirs: open still, saying why.
+    expect(files.texts['/p/a.dart'], 'theirs');
+    expect(_active(panel, session), same(tab));
+    expect(find.textContaining('changed on disk'), findsOneWidget);
+
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("Don't Save"));
+    await tester.pumpAndSettle();
+    expect(_active(panel, session), isNull);
+    expect(files.texts['/p/a.dart'], 'theirs');
+  });
+
   testWidgets('the same file opens in its tab again; tabs close', (
     tester,
   ) async {
@@ -1402,7 +1642,9 @@ void main() {
     final tab = _active(panel, session)!;
     expect(tab.path, '/p/lib/chat_screen.dart');
     expect(tab.request.range, const FileLineRange(4, 6));
-    expect(find.text('screen line 5'), findsOneWidget);
+    // The caret at the lines' start.
+    final edited = _edited(tester);
+    expect(edited.selection.baseOffset, edited.text.indexOf('screen line 4'));
 
     _tapSpan(tester, 'notes');
     await tester.pumpAndSettle();
@@ -1593,7 +1835,14 @@ void main() {
     'top right: the conversation, its title bar and scrollbar, reach the '
     'edge; its column keeps clear of the rail',
     (tester) async {
-      await pumpLoaded(tester);
+      final workspace = await pumpLoaded(tester);
+      await tester.pumpAndSettle();
+      expect(find.byType(SidePanelRail), findsNothing);
+
+      final existing = workspace.threads.firstWhere(
+        (thread) => thread.record != null,
+      );
+      workspace.select(existing);
       await tester.pumpAndSettle();
       final chat = tester.getRect(find.byType(ChatScreen));
       final rail = tester.getRect(find.byType(SidePanelRail));
@@ -1603,8 +1852,14 @@ void main() {
       expect(composer.right, lessThan(rail.left));
       // Room enough: the column in the middle, as without the rail.
       expect(composer.center.dx, closeTo(chat.center.dx, 0.5));
-      // Under the conversation's title bar.
-      expect(rail.top - chat.top, AppMetrics.titleBarHeight + 12);
+      // Just under the conversation's title bar; at the top under
+      // Windows' header.
+      expect(
+        rail.top - chat.top,
+        defaultTargetPlatform == TargetPlatform.windows
+            ? 12
+            : AppMetrics.titleBarHeight + 4,
+      );
 
       // A narrow window has no room to spare: no rail.
       tester.view.physicalSize = const Size(700, 900);

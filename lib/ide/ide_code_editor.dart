@@ -12,6 +12,55 @@ import 'package:bao_editor/textmate/textmate_syntax.dart';
 import '../theme/app_theme.dart';
 import '../theme/workbench_theme.dart' hide ColorScheme;
 
+/// The highlighting of the texts [IdeCodeEditor]s show one after another
+/// (the side panel's tabs): one TextMate worker for them all, and each
+/// text's tokens kept until [release]d, so a text shown again is colored at
+/// once rather than tokenized anew, as the IDE's editor keeps its tabs'.
+class IdeCodeHighlights {
+  late final TextMateSyntax syntax = TextMateSyntax(
+    themes: WorkbenchThemeService.instance,
+  );
+  bool _started = false;
+  final Map<EditorSurfaceController, (String, TextMateDocument)> _documents =
+      {};
+
+  TextMateSyntax get _syntax {
+    _started = true;
+    return syntax;
+  }
+
+  /// [controller]'s highlighting as the language of [path], if kept.
+  TextMateDocument? _documentFor(
+    EditorSurfaceController controller,
+    String path,
+  ) => switch (_documents[controller]) {
+    (final kept, final document) when kept == path => document,
+    _ => null,
+  };
+
+  void _keep(
+    EditorSurfaceController controller,
+    String path,
+    TextMateDocument? document,
+  ) {
+    final previous = _documents.remove(controller)?.$2;
+    if (!identical(previous, document)) previous?.dispose();
+    if (document != null) _documents[controller] = (path, document);
+  }
+
+  /// Lets go of [controller]'s tokens (its text is gone).
+  void release(EditorSurfaceController controller) =>
+      _documents.remove(controller)?.$2.dispose();
+
+  void dispose() {
+    for (final (_, document) in _documents.values) {
+      document.dispose();
+    }
+    _documents.clear();
+    if (_started) syntax.dispose();
+  }
+}
+
 /// The IDE's editor on its own, for a file edited outside the IDE (a skill,
 /// a rule, settings.json): [controller]'s text in the workbench's theme,
 /// highlighted (TextMate, where the platform has it) and bracketed as the
@@ -24,6 +73,9 @@ class IdeCodeEditor extends StatefulWidget {
     required this.path,
     this.focusNode,
     this.readOnly = false,
+    this.bare = false,
+    this.decorations = const [],
+    this.highlights,
   });
 
   final EditorSurfaceController controller;
@@ -33,15 +85,30 @@ class IdeCodeEditor extends StatefulWidget {
   final FocusNode? focusNode;
   final bool readOnly;
 
+  /// Only the text: no line numbers, margins, folds or indent guides, and no
+  /// scrolling past its last line. For a sample to be looked at.
+  final bool bare;
+
+  /// Painted over the text (lines marked, say).
+  final List<EditorDecoration> decorations;
+
+  /// Where its highlighting is kept past it; its own, gone with it, when
+  /// null.
+  final IdeCodeHighlights? highlights;
+
   @override
-  State<IdeCodeEditor> createState() => _IdeCodeEditorState();
+  State<IdeCodeEditor> createState() => IdeCodeEditorState();
 }
 
-class _IdeCodeEditorState extends State<IdeCodeEditor> {
+class IdeCodeEditorState extends State<IdeCodeEditor> {
   final GlobalKey _surfaceKey = GlobalKey();
   final WorkbenchThemeService _themes = WorkbenchThemeService.instance;
-  late final TextMateSyntax _textMate = TextMateSyntax(themes: _themes);
+  TextMateSyntax? _ownTextMate;
   TextMateDocument? _highlight;
+
+  TextMateSyntax get _textMate =>
+      widget.highlights?._syntax ??
+      (_ownTextMate ??= TextMateSyntax(themes: _themes));
 
   /// Bumped as the language is to be picked anew: an older pick is dropped.
   int _language = 0;
@@ -51,7 +118,7 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
     super.initState();
     _themes.addListener(_themeChanged);
     widget.controller.addListener(_textChanged);
-    unawaited(_pickLanguage());
+    _pickLanguage();
   }
 
   @override
@@ -62,8 +129,11 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
       widget.controller.addListener(_textChanged);
     }
     if (!identical(oldWidget.controller, widget.controller) ||
-        oldWidget.path != widget.path) {
-      unawaited(_pickLanguage());
+        oldWidget.path != widget.path ||
+        !identical(oldWidget.highlights, widget.highlights)) {
+      // Not the last text's colors on this one meanwhile.
+      _letGo(oldWidget);
+      _pickLanguage();
     }
   }
 
@@ -72,9 +142,27 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
     _language++;
     _themes.removeListener(_themeChanged);
     widget.controller.removeListener(_textChanged);
-    _highlight?.dispose();
-    _textMate.dispose();
+    _letGo(widget);
+    _ownTextMate?.dispose();
     super.dispose();
+  }
+
+  /// Stops showing the highlighting; disposes it unless [old]'s
+  /// highlights keep it.
+  void _letGo(IdeCodeEditor old) {
+    final highlight = _highlight;
+    _highlight = null;
+    highlight?.removeListener(_highlighted);
+    if (old.highlights == null) {
+      highlight?.dispose();
+    } else {
+      highlight?.clearViewport();
+    }
+  }
+
+  void _show(TextMateDocument? highlight) {
+    _highlight = highlight?..addListener(_highlighted);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _viewChanged());
   }
 
   void _themeChanged() {
@@ -90,10 +178,23 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
     highlight.update(snapshot);
   }
 
-  Future<void> _pickLanguage() async {
+  /// The kept highlighting at once (its language configuration is on the
+  /// controller already), else the language picked anew.
+  void _pickLanguage() {
     final request = ++_language;
+    if (widget.highlights?._documentFor(widget.controller, widget.path)
+        case final kept?) {
+      _show(kept);
+      _textChanged();
+      return;
+    }
+    unawaited(_pickNewLanguage(request));
+  }
+
+  Future<void> _pickNewLanguage(int request) async {
     final controller = widget.controller;
     final path = widget.path;
+    final highlights = widget.highlights;
     final snapshot = controller.document.snapshot;
     final firstLine = snapshot.text.substring(0, snapshot.contentEnds.first);
     final first = firstLine.startsWith('﻿')
@@ -112,16 +213,27 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
         firstLine: first,
       );
       if (!mounted || request != _language) return;
-      _highlight?.dispose();
-      _highlight = languageId == null
+      _letGo(widget);
+      final highlight = languageId == null
           ? null
-          : (_textMate.open(languageId, controller.document.snapshot)
-              ?..addListener(_highlighted));
-      setState(() {});
-      WidgetsBinding.instance.addPostFrameCallback((_) => _viewChanged());
+          : _textMate.open(languageId, controller.document.snapshot);
+      highlights?._keep(controller, path, highlight);
+      setState(() => _show(highlight));
     } on Object {
       // Plain text, then: the editing is the same.
     }
+  }
+
+  /// Scrolls the text from [start] to [end] into view, centered where it
+  /// was out of it; once laid out.
+  void revealRange(int start, int end) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final view = _surfaceKey.currentState;
+      if (mounted && view is EditorSurfaceView) {
+        (view as EditorSurfaceView).revealRange(start, end);
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   void _highlighted() {
@@ -146,19 +258,21 @@ class _IdeCodeEditorState extends State<IdeCodeEditor> {
       controller: widget.controller,
       focusNode: widget.focusNode,
       readOnly: widget.readOnly,
+      lineNumbers: !widget.bare,
+      glyphMargin: !widget.bare,
+      folding: !widget.bare,
+      indentGuides: !widget.bare,
+      scrollBeyondLastLine: !widget.bare,
       backgroundColor: colors['editor.background'],
       selectionColor: colors['editor.selectionBackground'],
       caretColor: colors['editorCursor.foreground'],
       theme: EditorViewTheme.fromColors(colors.get),
       styledLines: _highlight?.styledLines,
       showMinimap: false,
+      decorations: widget.decorations,
       onViewChanged: _viewChanged,
-      style: TextStyle(
-        color: colors['editor.foreground'],
-        fontFamily: AppFonts.mono,
-        fontSize: 13,
-        height: 1.45,
-      ),
+      style: AppFonts.codeStyle(13)
+          .copyWith(color: colors['editor.foreground'], height: 1.45),
     );
   }
 }
