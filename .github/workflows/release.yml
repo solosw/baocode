@@ -1,13 +1,11 @@
-# Builds BaoCode for macOS and Windows and publishes it to dl.baocode.dev
-# (Cloudflare R2), where installed apps find their updates. docs/release.md
-# has the whole of it: versions, secrets, what goes where.
+# Builds BaoCode for macOS and Windows and uploads the packages to a GitHub
+# Release. docs/release.md has versions and how a tag starts this.
 #
-#   git tag v1.2.0 && git push origin v1.2.0   build and publish 1.2.0
+#   git tag v1.2.0 && git push origin v1.2.0   build and upload 1.2.0
 #   Actions → Release → Run workflow           build only, to try the build
 #
-# A version may be published again (the tag moved to a fixed commit): the
-# links end in each file's hash, so the CDN serves the new files at once.
-# Installed apps already on that version are not offered it again.
+# A version may be uploaded again (the tag moved to a fixed commit): the
+# GitHub Release for that tag is replaced.
 name: Release
 
 on:
@@ -265,108 +263,40 @@ jobs:
           path: build/installers/BaoCode-*-setup.exe
 
   publish:
-    name: Publish to dl.baocode.dev
+    name: Upload the packages to GitHub
     needs: [check, remote, remote-linux, macos, windows]
     if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    # The update signing key and the R2 token are this environment's
-    # secrets.
-    environment: release
     permissions:
-      contents: write # the GitHub release
+      contents: write
     env:
-      VERSION: ${{ needs.check.outputs.version }}
       MARKETING: ${{ needs.check.outputs.marketing }}
-      R2_BUCKET: ${{ vars.R2_BUCKET }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-      # R2 does not take every checksum newer AWS CLIs send by default.
-      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
       - uses: actions/download-artifact@v4
         with:
           path: dist
-      - name: Gather the files
+      - name: Gather the packages
         run: |
           mkdir -p out
           for arch in arm64 x64; do
             cp dist/macos/BaoCode-$MARKETING-$arch.dmg dist/macos/BaoCode-$MARKETING-mac-$arch.zip out/
           done
           cp dist/windows/BaoCode-$MARKETING-setup.exe out/
-          # The remote server, under the name both apps' servers.json give it.
-          remote="out/remote/$(cat dist/remote/VERSION)"
-          mkdir -p "$remote"
-          cp dist/remote/*.gz "$remote/"
-          find out -type f | sort
-      - name: Sign the release into latest.json
-        env:
-          SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: |
-          flutter pub get
-          key="$RUNNER_TEMP/update-signing.key"
-          echo "$SIGNING_KEY" > "$key"
-          notes=()
-          for language in en zh; do
-            file="release-notes/$MARKETING.$language.md"
-            if [ -f "$file" ]; then
-              notes+=(--notes-$language "$file")
-            else
-              echo "::warning::No $file: the update notification and the changelog say nothing of $MARKETING"
-            fi
-          done
-          BAOCODE_UPDATE_SIGNING_KEY="$key" dart run tool/release_manifest.dart \
-            --version "$VERSION" \
-            --windows out/BaoCode-$MARKETING-setup.exe \
-            --macos-arm64 out/BaoCode-$MARKETING-mac-arm64.zip \
-            --macos-x64 out/BaoCode-$MARKETING-mac-x64.zip \
-            --dmg-arm64 out/BaoCode-$MARKETING-arm64.dmg \
-            --dmg-x64 out/BaoCode-$MARKETING-x64.dmg \
-            --manifest out/latest.json \
-            "${notes[@]}"
-          rm "$key"
-      - name: Upload the remote server, then the installers
-        run: |
-          immutable='public, max-age=31536000, immutable'
-          aws s3 cp out/remote "s3://$R2_BUCKET/releases/remote/" --recursive \
-            --cache-control "$immutable"
-          for file in $(cd out && ls BaoCode-*); do
-            aws s3 cp "out/$file" "s3://$R2_BUCKET/releases/$MARKETING/$file" \
-              --cache-control "$immutable"
-          done
-      - name: Check the downloads are served
-        run: |
-          # At the manifest's links, which end in each file's hash: what
-          # users will be given, not what the CDN may have kept of a
-          # release published before under the same names.
-          jq -r '(.downloads[], .platforms[]) | "\(.url) \(.size)"' out/latest.json | sort -u |
-          while read -r url expected; do
-            served=$(curl -fsSI "$url" | tr -d '\r' | awk 'tolower($1) == "content-length:" { print $2 }')
-            echo "$url: $served bytes (expected $expected)"
-            [ "$served" = "$expected" ] || { echo "::error::$url is not served as uploaded"; exit 1; }
-          done
-      - name: Upload latest.json, last
-        run: |
-          # Apps check every 6 hours; a few minutes of cache spares R2
-          # without holding a release back.
-          aws s3 cp out/latest.json "s3://$R2_BUCKET/releases/latest.json" \
-            --cache-control 'public, max-age=300' --content-type application/json
-          curl -fsS "https://dl.baocode.dev/releases/latest.json?$GITHUB_RUN_ID" | jq .
+          find out -type f -printf '%f\n' | sort
       - name: Make the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes=(--generate-notes)
           [ -f "release-notes/$MARKETING.en.md" ] && notes=(--notes-file "release-notes/$MARKETING.en.md")
-          # Published again: the release is made anew, on the tag's commit.
+          # Uploaded again: the release is made anew, on the tag's commit.
+          # Do not pass --cleanup-tag: that would delete the tag that
+          # started this run.
           gh release delete "v$MARKETING" --yes 2>/dev/null || true
           gh release create "v$MARKETING" --title "BaoCode $MARKETING" "${notes[@]}" \
-            out/BaoCode-$MARKETING-arm64.dmg out/BaoCode-$MARKETING-x64.dmg out/BaoCode-$MARKETING-setup.exe
+            out/BaoCode-$MARKETING-arm64.dmg \
+            out/BaoCode-$MARKETING-x64.dmg \
+            out/BaoCode-$MARKETING-mac-arm64.zip \
+            out/BaoCode-$MARKETING-mac-x64.zip \
+            out/BaoCode-$MARKETING-setup.exe
