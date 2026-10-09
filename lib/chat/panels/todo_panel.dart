@@ -5,15 +5,16 @@ import '../../l10n/l10n.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/workbench_theme.dart' show themeColors;
 
-/// The agent's todo list, docked above the composer while it has open
+/// The agent's todo list, docked above the composer while it has any
 /// items: done ones struck through, the current one in its active words.
 class TodoPanel extends StatefulWidget {
   const TodoPanel({super.key, required this.todos});
 
   final List<TodoEntry> todos;
 
-  static bool hasContent(List<TodoEntry> todos) =>
-      todos.any((todo) => todo.status != TodoStatus.completed);
+  /// Shown whenever the agent has reported a list, including one that is
+  /// entirely done. An empty report hides it.
+  static bool hasContent(List<TodoEntry> todos) => todos.isNotEmpty;
 
   @override
   State<TodoPanel> createState() => _TodoPanelState();

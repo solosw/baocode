@@ -930,6 +930,9 @@ class IdeWorkbenchState extends State<IdeWorkbench> {
           ? workspace.watchFolder
           : (_) => const Stream.empty(),
     );
+    if (workspace.isMultiRoot) {
+      _explorer.setRoots(workspace.roots, multiRoot: true);
+    }
     _fileIndex = IdeFileIndex(
       workspace.files,
       workspace.root,
@@ -976,7 +979,7 @@ class IdeWorkbenchState extends State<IdeWorkbench> {
   void _rootsChanged() {
     final workspace = widget.workspace;
     if (workspace.isMultiRoot) {
-      _explorer.roots = workspace.roots;
+      _explorer.setRoots(workspace.roots, multiRoot: true);
       _fileIndex.roots = workspace.roots;
       _terminals?.root = workspace.roots.firstOrNull ?? workspace.root;
     }
@@ -3223,53 +3226,46 @@ class IdeWorkbenchState extends State<IdeWorkbench> {
                         onPressed: _explorer.collapseAll,
                       ),
                     ],
-                    body: workspace.isMultiRoot && workspace.roots.isEmpty
-                        ? _EmptyWorkspace(onAddFolder: widget.onAddFolder)
-                        : IdeExplorer(
-                            key: _explorerTree,
-                            controller: _explorer,
-                            focusNode: _explorerFocus,
-                            isBound: (event) =>
-                                _resolveEditorKey(event) != null,
-                            git: workspace.git,
-                            repositories: [
-                              for (final (_, git) in workspace.repositories)
-                                git,
-                            ],
-                            onAddFolder: workspace.isMultiRoot
-                                ? widget.onAddFolder
-                                : null,
-                            onRemoveFolder: workspace.isMultiRoot
-                                ? widget.onRemoveFolder
-                                : null,
-                            onOpen: (path, focusEditor) => unawaited(
-                              _open(path, focusEditor: focusEditor),
-                            ),
-                            onMoved: workspace.moved,
-                            onDeleted: workspace.deleted,
-                            unsavedIn: (path) => workspace
-                                .documentsIn(path)
-                                .where((d) => d.dirty)
-                                .length,
-                            local: _local,
-                            trash: _local && WindowControls.canMoveToTrash
-                                ? WindowControls.moveToTrash
-                                : null,
-                            onError: _report,
-                            onOpenInDefaultApp:
-                                _local && WindowControls.canOpenInDefaultApp
-                                ? (path) => unawaited(_openInDefaultApp(path))
-                                : null,
-                            onFindInFolder: (folder) {
-                              _search.findInFolder(
-                                _relative(folder) == '.'
-                                    ? ''
-                                    : _relative(folder),
-                                workspace.root,
-                              );
-                              _showView(IdeSideView.search);
-                            },
-                          ),
+                    body: IdeExplorer(
+                      key: _explorerTree,
+                      controller: _explorer,
+                      focusNode: _explorerFocus,
+                      isBound: (event) => _resolveEditorKey(event) != null,
+                      git: workspace.git,
+                      repositories: [
+                        for (final (_, git) in workspace.repositories) git,
+                      ],
+                      onAddFolder: workspace.isMultiRoot
+                          ? widget.onAddFolder
+                          : null,
+                      onRemoveFolder: workspace.isMultiRoot
+                          ? widget.onRemoveFolder
+                          : null,
+                      onOpen: (path, focusEditor) =>
+                          unawaited(_open(path, focusEditor: focusEditor)),
+                      onMoved: workspace.moved,
+                      onDeleted: workspace.deleted,
+                      unsavedIn: (path) => workspace
+                          .documentsIn(path)
+                          .where((d) => d.dirty)
+                          .length,
+                      local: _local,
+                      trash: _local && WindowControls.canMoveToTrash
+                          ? WindowControls.moveToTrash
+                          : null,
+                      onError: _report,
+                      onOpenInDefaultApp:
+                          _local && WindowControls.canOpenInDefaultApp
+                          ? (path) => unawaited(_openInDefaultApp(path))
+                          : null,
+                      onFindInFolder: (folder) {
+                        _search.findInFolder(
+                          _relative(folder) == '.' ? '' : _relative(folder),
+                          workspace.root,
+                        );
+                        _showView(IdeSideView.search);
+                      },
+                    ),
                   ),
                 IdePane(
                   id: 'outline',
@@ -4549,39 +4545,6 @@ class _NoFolder extends StatelessWidget {
             label: l10n.explorerOpenFolder,
             expand: true,
             onPressed: open,
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// The explorer of a workspace with no folders yet: a button to add one.
-class _EmptyWorkspace extends StatelessWidget {
-  const _EmptyWorkspace({this.onAddFolder});
-
-  final VoidCallback? onAddFolder;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      children: [
-        Text(
-          l10n.ideEmptyWorkspace,
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.4,
-            color: themeColors['sideBar.foreground'],
-          ),
-        ),
-        if (onAddFolder case final add?) ...[
-          const SizedBox(height: 12),
-          IdeButton(
-            label: l10n.ideAddFolderToWorkspace,
-            expand: true,
-            onPressed: add,
           ),
         ],
       ],

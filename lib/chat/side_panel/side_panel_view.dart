@@ -425,6 +425,7 @@ class AgentSidePanelView extends StatelessWidget {
             files,
             watch: watchDirectory,
             roots: roots,
+            multiRoot: _isWorkspace,
             paths: _paths,
           );
     final local = files is! IdeHostFiles;
@@ -461,30 +462,28 @@ class AgentSidePanelView extends StatelessWidget {
                   ],
                 ),
                 Expanded(
-                  child: _isWorkspace && roots.isEmpty
-                      ? _EmptyWorkspace(onAddFolder: onAddFolder)
-                      : IdeExplorer(
-                          key: ObjectKey(explorer),
-                          controller: explorer,
-                          local: local,
-                          onAddFolder: _isWorkspace ? onAddFolder : null,
-                          onRemoveFolder: _isWorkspace ? onRemoveFolder : null,
-                          trash: local && WindowControls.canMoveToTrash
-                              ? WindowControls.moveToTrash
-                              : null,
-                          onOpen: (path, _) =>
-                              panel.open(session, FileOpenRequest(path)),
-                          // A paste, rename or delete that failed.
-                          onError: (error) => unawaited(
-                            showIdeDialog(
-                              context,
-                              type: IdeDialogType.error,
-                              message: localizedFileError(l10n, error),
-                              buttons: const [],
-                              cancel: l10n.commonOk,
-                            ),
-                          ),
-                        ),
+                  child: IdeExplorer(
+                    key: ObjectKey(explorer),
+                    controller: explorer,
+                    local: local,
+                    onAddFolder: _isWorkspace ? onAddFolder : null,
+                    onRemoveFolder: _isWorkspace ? onRemoveFolder : null,
+                    trash: local && WindowControls.canMoveToTrash
+                        ? WindowControls.moveToTrash
+                        : null,
+                    onOpen: (path, _) =>
+                        panel.open(session, FileOpenRequest(path)),
+                    // A paste, rename or delete that failed.
+                    onError: (error) => unawaited(
+                      showIdeDialog(
+                        context,
+                        type: IdeDialogType.error,
+                        message: localizedFileError(l10n, error),
+                        buttons: const [],
+                        cancel: l10n.commonOk,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1870,43 +1869,6 @@ class _Tab extends StatelessWidget {
       selected: active,
       label: tooltip ?? label,
       child: tooltip == null ? tab : IdeHover(message: tooltip!, child: tab),
-    );
-  }
-}
-
-/// The files page of a workspace with no folders yet: a button to add
-/// one.
-class _EmptyWorkspace extends StatelessWidget {
-  const _EmptyWorkspace({this.onAddFolder});
-
-  final VoidCallback? onAddFolder;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            l10n.ideEmptyWorkspace,
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.5,
-              color: AppColors.textMuted,
-            ),
-          ),
-          if (onAddFolder case final add?) ...[
-            const SizedBox(height: 12),
-            IdeButton(
-              label: l10n.ideAddFolderToWorkspace,
-              expand: true,
-              onPressed: add,
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

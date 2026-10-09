@@ -34,35 +34,77 @@ class MockAcpTransport implements AcpTransport {
       case 'session/new':
         // As real agents do: advertise modes and slash commands as a
         // notification before the session/new result is delivered.
-        _out.add({
-          'jsonrpc': '2.0',
-          'method': 'session/update',
-          'params': {
-            'sessionId': _sessions['sessionId'],
-            'update': {
-              'sessionUpdate': 'available_commands_update',
-              'availableCommands': [
-                {'name': 'splash', 'description': 'Show splash'},
-              ],
-            },
-          },
-        });
-        _out.add({
-          'jsonrpc': '2.0',
-          'method': 'session/update',
-          'params': {
-            'sessionId': _sessions['sessionId'],
-            'update': {
-              'sessionUpdate': 'current_mode_update',
-              'currentModeId': 'plan',
-              'availableModes': [
-                {'id': 'plan', 'name': 'Plan'},
-                {'id': 'bypass', 'name': 'Bypass'},
-              ],
-            },
-          },
-        });
+        _advertise();
         _respond(id, {..._sessions});
+      case 'session/load':
+        final params = (message['params'] as Map).cast<String, Object?>();
+        // History arrives before the load result, as a real ACP agent does.
+        // Without a listener these updates stay queued until takeQueued.
+        _out.add({
+          'jsonrpc': '2.0',
+          'method': 'session/update',
+          'params': {
+            'sessionId': params['sessionId'],
+            'update': {
+              'sessionUpdate': 'user_message_chunk',
+              'messageId': 'hist_user_0',
+              'content': {'type': 'text', 'text': 'first question'},
+            },
+          },
+        });
+        _out.add({
+          'jsonrpc': '2.0',
+          'method': 'session/update',
+          'params': {
+            'sessionId': params['sessionId'],
+            'update': {
+              'sessionUpdate': 'agent_thought_chunk',
+              'messageId': 'hist_agent_1',
+              'content': {
+                'type': 'text',
+                'text': 'thinking about first answer',
+              },
+            },
+          },
+        });
+        _out.add({
+          'jsonrpc': '2.0',
+          'method': 'session/update',
+          'params': {
+            'sessionId': params['sessionId'],
+            'update': {
+              'sessionUpdate': 'agent_message_chunk',
+              'messageId': 'hist_agent_1',
+              'content': {'type': 'text', 'text': 'first answer'},
+            },
+          },
+        });
+        _out.add({
+          'jsonrpc': '2.0',
+          'method': 'session/update',
+          'params': {
+            'sessionId': params['sessionId'],
+            'update': {
+              'sessionUpdate': 'user_message_chunk',
+              'messageId': 'hist_user_2',
+              'content': {'type': 'text', 'text': 'second question'},
+            },
+          },
+        });
+        _out.add({
+          'jsonrpc': '2.0',
+          'method': 'session/update',
+          'params': {
+            'sessionId': params['sessionId'],
+            'update': {
+              'sessionUpdate': 'agent_message_chunk',
+              'messageId': 'hist_agent_3',
+              'content': {'type': 'text', 'text': 'second answer'},
+            },
+          },
+        });
+        _advertise();
+        _respond(id, {});
       case 'session/prompt':
         _respond(id, {
           'sessionId': _sessions['sessionId'],
@@ -124,7 +166,6 @@ class MockAcpTransport implements AcpTransport {
             'sessionId': _sessions['sessionId'],
             'update': {
               'sessionUpdate': 'agent_message_chunk',
-              'messageId': 'item_1',
               'content': {'type': 'text', 'text': 'Echo: $prompt'},
             },
           },
@@ -136,23 +177,59 @@ class MockAcpTransport implements AcpTransport {
     }
   }
 
-  void emitUsage({required int used, required int size}) {
+  void _advertise() {
     _out.add({
       'jsonrpc': '2.0',
       'method': 'session/update',
       'params': {
         'sessionId': _sessions['sessionId'],
         'update': {
-          'sessionUpdate': 'usage_update',
-          'used': used,
-          'size': size,
+          'sessionUpdate': 'available_commands_update',
+          'availableCommands': [
+            {'name': 'splash', 'description': 'Show splash'},
+          ],
         },
+      },
+    });
+    _out.add({
+      'jsonrpc': '2.0',
+      'method': 'session/update',
+      'params': {
+        'sessionId': _sessions['sessionId'],
+        'update': {
+          'sessionUpdate': 'current_mode_update',
+          'currentModeId': 'plan',
+          'availableModes': [
+            {'id': 'plan', 'name': 'Plan'},
+            {'id': 'bypass', 'name': 'Bypass'},
+          ],
+        },
+      },
+    });
+  }
+
+  void emitUsage({required int used, required int size}) {
+    _out.add({
+      'jsonrpc': '2.0',
+      'method': 'session/update',
+      'params': {
+        'sessionId': _sessions['sessionId'],
+        'update': {'sessionUpdate': 'usage_update', 'used': used, 'size': size},
       },
     });
   }
 
   void _respond(Object? id, Map<String, Object?> result) {
     _out.add({'jsonrpc': '2.0', 'id': id, 'result': result});
+  }
+
+  /// Injects an agent `session/update` the kernel is already listening for.
+  void notify(Map<String, Object?> update) {
+    _out.add({
+      'jsonrpc': '2.0',
+      'method': 'session/update',
+      'params': {'sessionId': _sessions['sessionId'], 'update': update},
+    });
   }
 
   @override

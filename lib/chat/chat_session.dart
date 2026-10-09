@@ -169,6 +169,12 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
   /// Gives the edits reported a moment to settle before a look.
   Timer? _lookTimer;
 
+  /// While a turn is running, looks again every few seconds: kernels that
+  /// edit through a shell (ACP) never report the files, and a look only at
+  /// the turn's end would hold the changes back until then.
+  Timer? _scanTimer;
+  static const _scanInterval = Duration(seconds: 3);
+
   /// The review, while it holds: null before it opened, or once it failed
   /// (the changes are then those the kernel reported).
   ChangeReview? get _activeReview => switch (_review) {
@@ -211,9 +217,21 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
     switch (event) {
       case TurnStarted():
         review.working = true;
+        _scanTimer ??= Timer.periodic(_scanInterval, (_) {
+          if (_disposed || !isStreaming) {
+            _scanTimer?.cancel();
+            _scanTimer = null;
+            return;
+          }
+          unawaited(review.observe());
+        });
       case TurnEnded():
         review.working = isStreaming;
         _lookTimer?.cancel();
+        if (!isStreaming) {
+          _scanTimer?.cancel();
+          _scanTimer = null;
+        }
         unawaited(review.observe());
       case FileEdited(:final change):
         review.report(change);
@@ -285,9 +303,7 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
   /// Null once locked, or with nothing to choose from.
   KernelChoice? get kernelChoice {
     if (kernelLocked || kernels.length < 2) return null;
-    final options = [
-      for (final descriptor in kernels) descriptor.option,
-    ];
+    final options = [for (final descriptor in kernels) descriptor.option];
     final selected = options.cast<KernelOption?>().firstWhere(
       (option) => option?.id == kernel.id,
       orElse: () => options.first,
@@ -908,6 +924,7 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
     _disposed = true;
     _quietTimer?.cancel();
     _lookTimer?.cancel();
+    _scanTimer?.cancel();
     _review
       ?..removeListener(_reviewChanged)
       ..dispose();

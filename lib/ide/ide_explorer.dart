@@ -73,15 +73,18 @@ class IdeExplorerController extends ChangeNotifier {
     required String root,
     Stream<void> Function(String directory)? watch,
     List<String> roots = const [],
+    bool multiRoot = false,
     p.Context? paths,
   }) : paths = paths ?? p.context,
        root = (paths ?? p.context).normalize(root),
+       _multiRoot = multiRoot || roots.isNotEmpty,
        _watchDirectory =
            watch ??
            switch (files) {
              final IdeHostFiles files => files.watchDirectory,
              _ => watchDirectory,
            } {
+    if (_multiRoot) _expanded.add(this.root);
     unawaited(_load(this.root));
     this.roots = roots;
     _watchExpanded();
@@ -91,34 +94,50 @@ class IdeExplorerController extends ChangeNotifier {
   final String root;
   final p.Context paths;
 
-  /// A multi-folder workspace's folders, the tree's top rows in place of
-  /// [root]'s entries (as VS Code lists workspace folders); none for a
-  /// folder's project.
+  /// A multi-folder workspace's folders, the tree's top rows; none for a
+  /// folder's project. The workspace's own folder ([root], its data
+  /// directory) is listed with them, so files made there show too.
   List<String> get roots => _roots;
   List<String> _roots = const [];
 
+  /// The top rows: [root] first when this is a multi-folder workspace,
+  /// then the folders the user added.
+  List<String> get _treeRoots => _multiRoot ? [root, ..._roots] : const [];
+
+  /// Whether this tree lists a multi-folder workspace (even with no folders
+  /// added yet) rather than a single project folder.
+  bool _multiRoot;
+
   /// Shows [roots] at the top of the tree: those added expanded, as VS
-  /// Code opens them.
-  set roots(List<String> roots) {
+  /// Code opens them. The workspace's own folder stays expanded with them.
+  /// [multiRoot] keeps that folder listed even when [roots] is empty.
+  set roots(List<String> roots) => setRoots(roots);
+
+  void setRoots(List<String> roots, {bool? multiRoot}) {
     final normalized = [for (final root in roots) paths.normalize(root)];
-    if (listEquals(normalized, _roots)) return;
-    for (final root in normalized) {
-      if (!_roots.contains(root)) {
-        _expanded.add(root);
-        unawaited(_load(root));
-      }
+    final nextMulti = (multiRoot ?? _multiRoot) || normalized.isNotEmpty;
+    if (listEquals(normalized, _roots) && nextMulti == _multiRoot) return;
+    final showing = nextMulti;
+    for (final folder in [if (showing) root, ...normalized]) {
+      if (folder != root && _roots.contains(folder)) continue;
+      if (_expanded.add(folder)) unawaited(_load(folder));
     }
     _expanded.removeWhere(
       (path) => !_inTree(path, normalized) && paths.isWithin(root, path),
     );
     _roots = normalized;
+    _multiRoot = nextMulti;
     _changed();
   }
 
-  /// Whether [path] is a row's: under [roots], or [root] for a folder.
-  bool _inTree(String path, List<String> roots) => roots.isEmpty
+  /// Whether [path] is a row's: under [roots] or the workspace's own
+  /// folder, or under [root] for a folder's project.
+  bool _inTree(String path, List<String> roots) => roots.isEmpty && !_multiRoot
       ? paths.isWithin(root, path)
-      : roots.any((r) => r == path || paths.isWithin(r, path));
+      : _treeContains(path, [root, ...roots]);
+
+  bool _treeContains(String path, List<String> roots) =>
+      roots.any((r) => r == path || paths.isWithin(r, path));
 
   /// Whether [path] is in the tree: under [root], or a workspace folder.
   bool shows(String path) => _inTree(paths.normalize(path), _roots);
@@ -135,14 +154,14 @@ class IdeExplorerController extends ChangeNotifier {
   }
 
   /// Whether [path] is a folder with a row: one that may hold others
-  /// selected (a workspace folder's, but not [root]).
-  bool isFolderRow(String path) => _roots.isEmpty
+  /// selected (a workspace folder's, and the workspace's own folder).
+  bool isFolderRow(String path) => _treeRoots.isEmpty
       ? path != root && paths.isWithin(root, path)
-      : _inTree(path, _roots);
+      : _treeContains(path, _treeRoots);
 
-  /// Where new items go when no row says: [root], or the first workspace
-  /// folder.
-  String get defaultFolder => _roots.firstOrNull ?? root;
+  /// Where new items go when no row says: the workspace's own folder, or
+  /// [root].
+  String get defaultFolder => root;
 
   /// The root and the expanded folders, watched so the tree shows files
   /// made, moved or deleted outside it (an agent's, a terminal's), as VS
@@ -198,6 +217,9 @@ class IdeExplorerController extends ChangeNotifier {
       }
       for (final entry in _children[directory] ?? const <IdeFile>[]) {
         final path = paths.join(directory, entry.name);
+        // A workspace folder is its own root; don't list it again under the
+        // workspace's own folder.
+        if (_roots.contains(path)) continue;
         final expanded = entry.isDirectory && _expanded.contains(path);
         rows.add(
           IdeExplorerRow(
@@ -212,11 +234,11 @@ class IdeExplorerController extends ChangeNotifier {
       }
     }
 
-    if (_roots.isEmpty) {
+    if (!_multiRoot) {
       add(root, 0);
       return rows;
     }
-    for (final folder in _roots) {
+    for (final folder in _treeRoots) {
       final expanded = _expanded.contains(folder);
       rows.add(
         IdeExplorerRow(
@@ -1308,7 +1330,9 @@ class IdeExplorerState extends State<IdeExplorer> {
     final path = row?.path ?? _controller.defaultFolder;
     final isFolder = row == null || row.isDirectory;
     final isRoot = row == null || row.isRoot;
-    final workspaceFolder = row != null && row.isRoot;
+    // An added folder, not the workspace's own data directory.
+    final workspaceFolder =
+        row != null && row.isRoot && row.path != _controller.root;
     final targets = row == null ? const <IdeExplorerRow>[] : _targets(row);
     final canPaste = isFolder && await _toPaste() != null;
     if (!mounted) return;

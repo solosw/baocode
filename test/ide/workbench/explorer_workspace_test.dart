@@ -81,10 +81,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(removed, [inRoot('api')]);
 
-    // The host takes it out: the explorer follows.
+    // The host takes it out: it is no longer a workspace root. The fixture
+    // keeps the folder inside the workspace directory, so it can still
+    // show there as an ordinary folder.
     workspace.roots = [inRoot('site')];
     await tester.pumpAndSettle();
-    expect(find.text('main.go'), findsNothing);
+    expect(
+      tester.widget<Text>(find.text('api')).style?.fontWeight,
+      isNot(FontWeight.w600),
+    );
 
     final explorer = tester.getRect(find.byType(IdeExplorer));
     await tester.tapAt(
@@ -97,18 +102,24 @@ void main() {
     expect(added, 1);
   });
 
-  testWidgets('with no folders yet, the explorer asks for one', (tester) async {
+  testWidgets('with no folders yet, the explorer still lists the '
+      'workspace folder', (tester) async {
     var added = 0;
     await pumpWorkbench(
       tester,
-      const {},
+      const {'notes.txt': 'hi'},
       roots: const [],
       project: _web,
       onAddFolder: () => added++,
     );
     await tester.pumpAndSettle();
-    expect(find.text('This workspace has no folders yet.'), findsOneWidget);
-    await tester.tap(find.text('Add Folder to Workspace…').last);
+    expect(find.text('This workspace has no folders yet.'), findsNothing);
+    expect(find.text('notes.txt'), findsOneWidget);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.text('web (Workspace)')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Codicons.rootFolder));
     expect(added, 1);
   });
 

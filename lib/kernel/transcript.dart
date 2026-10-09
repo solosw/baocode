@@ -115,8 +115,13 @@ class Transcript {
         _pending.clear();
         _settleStreaming();
         if (!interrupted && worked != null) _timeTurn(turnId, worked);
-      case ItemUpserted(:final id, :final item, :final streaming):
-        _put(id, item);
+      case ItemUpserted(
+        :final id,
+        :final item,
+        :final streaming,
+        :final before,
+      ):
+        _put(id, item, before: before);
         streaming ? _streaming.add(id) : _streaming.remove(id);
       case TextDelta(:final id, :final offset, :final text, :final tokens):
         if (!_appendAt(id, offset, text, tokens)) return false;
@@ -161,15 +166,27 @@ class Transcript {
     return true;
   }
 
-  void _put(String id, ChatItem item) {
+  /// Adds [item] as [id], or replaces it where it already is. A new item
+  /// goes at the end, unless [before] names one already here: then it is
+  /// inserted just ahead of that one.
+  void _put(String id, ChatItem item, {String? before}) {
     final index = _indexOf[id];
     if (index != null) {
       _items[index] = item;
       return;
     }
-    _indexOf[id] = _items.length;
-    _ids.add(id);
-    _items.add(item);
+    final at = before == null ? null : _indexOf[before];
+    if (at == null) {
+      _indexOf[id] = _items.length;
+      _ids.add(id);
+      _items.add(item);
+      return;
+    }
+    _ids.insert(at, id);
+    _items.insert(at, item);
+    for (var i = at; i < _ids.length; i++) {
+      _indexOf[_ids[i]] = i;
+    }
   }
 
   bool _remove(String id) {

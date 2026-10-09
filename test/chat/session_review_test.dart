@@ -130,6 +130,27 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets('while a turn runs, the project is scanned every few seconds', (
+    tester,
+  ) async {
+    final session = await pump(tester);
+    review.holdBegin = Completer()..complete();
+    session.send(const ComposerMessage(text: '改一下'));
+    await tester.pump(const Duration(milliseconds: 200));
+    final before = review.calls.where((call) => call == 'observe').length;
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      review.calls.where((call) => call == 'observe').length,
+      greaterThan(before),
+    );
+
+    await finish(tester, session);
+    final after = review.calls.where((call) => call == 'observe').length;
+    await tester.pump(const Duration(seconds: 4));
+    expect(review.calls.where((call) => call == 'observe').length, after);
+  });
+
   testWidgets('the changes, and Keep and Undo, are the review\'s', (
     tester,
   ) async {

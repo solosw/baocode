@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -26,11 +27,20 @@ class AcpKernel
   String? _turnId;
   DateTime? _turnStarted;
   int _nextId = 0;
+  int _turnCount = 0;
+  /// Open agent text/thought stream (ACP/Zed merge target).
+  String? _assistantItemId;
+  String? _assistantMessageId;
+  bool? _assistantIsThought;
+  bool _replaying = false;
+  int _replaySeq = 0;
+  String? _replayTurnId;
   bool _initialized = false;
   bool _starting = false;
   bool _disposed = false;
   final Map<String, Completer<Map<String, Object?>>> _pending = {};
   final Map<String, String> _messages = {};
+  final Set<String> _todoToolIds = {};
   final List<KernelOption> _modeOptions = [];
   List<KernelCommand> _commands = const [];
 
@@ -96,24 +106,37 @@ class AcpKernel
 
   Future<void> _ensureSession() async {
     if (_sessionId != null) return;
-    final session = await _request('session/new', {
-      'cwd': _context.cwd ?? '',
-      'mcpServers': const <Object?>[],
-    });
-    _sessionId = session['sessionId'] as String?;
-    _applyModes(session['modes']);
+    final resume = _context.resume;
+    if (resume != null) {
+      _sessionId = resume.id;
+      _replaying = true;
+      _closeAssistantStream();
+      await _request('session/load', {
+        'sessionId': resume.id,
+        'cwd': _context.cwd ?? resume.cwd,
+        'mcpServers': const <Object?>[],
+      });
+    } else {
+      final session = await _request('session/new', {
+        'cwd': _context.cwd ?? '',
+        'mcpServers': const <Object?>[],
+      });
+      _sessionId = session['sessionId'] as String?;
+    }
+    _applyModes(_lastSession?['modes']);
     _setCommands(
-      session['availableCommands'] ??
-          session['available_commands'] ??
-          session['commands'] ??
-          session['slashCommands'],
+      _lastSession?['availableCommands'] ??
+          _lastSession?['available_commands'] ??
+          _lastSession?['commands'] ??
+          _lastSession?['slashCommands'],
     );
-    // Notifications that arrived during session/new were queued until the
-    // listener resumed. Apply them now so modes and slash commands replace
-    // the previous agent's.
+    // History session/update may have been queued before the load/new
+    // response. Apply it now, while _replaying is still set for resume,
+    // or replies are treated as a live turn and land out of order.
     _flushQueued();
+    if (resume != null) _finishReplay();
     if (_sessionId == null) {
-      throw StateError('ACP session/new returned no sessionId');
+      throw StateError('ACP session returned no sessionId');
     }
   }
 
@@ -136,13 +159,32 @@ class AcpKernel
       final sessionId = _sessionId!;
       _turnId = turn.id;
       _turnStarted = DateTime.now();
+      _turnCount++;
+      _closeAssistantStream();
       emit(TurnStarted(nextSeq, turn.id));
+      emit(
+        ItemUpserted(
+          nextSeq,
+          turn.id,
+          UserMessageItem(text: turn.text, images: turn.images),
+        ),
+      );
+      // /sessions replays the selected conversation through this prompt,
+      // rather than through session/load.
+      final loadsHistory =
+          turn.text.trim().split(RegExp(r'\s+')).first == '/sessions';
+      if (loadsHistory) _replaying = true;
       final result = await _request('session/prompt', {
         'sessionId': sessionId,
         'prompt': [
           {'type': 'text', 'text': turn.text},
         ],
       });
+      // /sessions may queue history until the prompt result arrives.
+      if (loadsHistory) {
+        _flushQueued();
+        _finishReplay();
+      }
       if (_turnId == turn.id) {
         _endTurn(result['stopReason'] == 'cancelled');
       }
@@ -290,7 +332,7 @@ class AcpKernel
   Future<Map<String, Object?>> _request(
     String method,
     Map<String, Object?> params,
-  ) {
+  ) async {
     final id = '${++_nextId}';
     final completer = Completer<Map<String, Object?>>();
     _pending[id] = completer;
@@ -300,25 +342,27 @@ class AcpKernel
       'method': method,
       'params': params,
     });
-    return completer.future.timeout(
-      const Duration(minutes: 5),
-      onTimeout: () => throw TimeoutException('ACP request timed out: $method'),
-    );
+    // ACP turns and startup wait on the agent. A client timeout would end a
+    // still-running prompt and look like a protocol failure.
+    final result = await completer.future;
+    _lastSession = result;
+    return result;
   }
+
+  Map<String, Object?>? _lastSession;
 
   void _flushQueued() {
     final transport = _transport;
     if (transport is! QueuedAcpTransport) return;
     final pending = transport.takeQueued();
     if (pending.isEmpty) return;
-    // Apply after session/new's future resumes, so a mode/command update
-    // that arrived before the result is not dropped on the paused listener.
-    scheduleMicrotask(() {
-      if (_disposed) return;
-      for (final message in pending) {
-        _receive(message);
-      }
-    });
+    // Apply synchronously: session/load history must run while _replaying
+    // is still true. A microtask would finish the replay first and then
+    // treat the history as a live turn.
+    if (_disposed) return;
+    for (final message in pending) {
+      _receive(message);
+    }
   }
 
   void _receive(Map<String, Object?> message) {
@@ -424,6 +468,38 @@ class AcpKernel
   final Map<String, Map<String, String>> _permissionKinds = {};
   final Set<String> _commandInteractionIds = {};
 
+  void _beginReplayTurn() {
+    if (_replayTurnId != null) _endTurn(false);
+    _replayTurnId = 'acp_replay_${++_replaySeq}';
+    _turnId = _replayTurnId;
+    emit(TurnStarted(nextSeq, _replayTurnId!));
+  }
+
+  void _finishReplay() {
+    if (_replayTurnId != null) _endTurn(false);
+    _replayTurnId = null;
+    _replaying = false;
+    _closeAssistantStream();
+  }
+
+  void _closeAssistantStream() {
+    _assistantItemId = null;
+    _assistantMessageId = null;
+    _assistantIsThought = null;
+  }
+
+  /// Zed/ACP: same messageId merges; either side missing messageId merges;
+  /// both present and unequal starts a new message.
+  bool _canMergeMessageIds(String? existing, String? incoming) {
+    if (existing != null &&
+        existing.isNotEmpty &&
+        incoming != null &&
+        incoming.isNotEmpty) {
+      return existing == incoming;
+    }
+    return true;
+  }
+
   void _handleUpdate(Map<String, Object?> params) {
     final session = params['sessionId'];
     if (_sessionId != null && session is String && session != _sessionId) {
@@ -438,12 +514,29 @@ class AcpKernel
             (update['content'] as Map?)?.cast<String, Object?>() ?? const {};
         final text = content['text'];
         if (text is! String || text.isEmpty) return;
-        final itemId =
-            update['messageId'] as String? ??
-            update['thoughtId'] as String? ??
-            (update['sessionUpdate'] == 'agent_thought_chunk'
-                ? 'acp_agent_thought'
-                : 'acp_agent_message');
+        final thought = update['sessionUpdate'] == 'agent_thought_chunk';
+        // ACP v1 Message ID RFD: thoughts also use messageId (optional).
+        final rawId = update['messageId'] as String?;
+        final messageId =
+            rawId != null && rawId.isNotEmpty ? rawId : null;
+        final merge =
+            _assistantItemId != null &&
+            _assistantIsThought == thought &&
+            _canMergeMessageIds(_assistantMessageId, messageId);
+        final String itemId;
+        if (merge) {
+          itemId = _assistantItemId!;
+          _assistantMessageId ??= messageId;
+        } else {
+          // Always append in arrival order. Item ids stay unique even when
+          // the protocol reuses messageId across separate assistant entries
+          // (e.g. after a tool call).
+          itemId =
+              'acp_${thought ? 'thought' : 'message'}_${_turnCount}_${++_replaySeq}';
+          _assistantItemId = itemId;
+          _assistantMessageId = messageId;
+          _assistantIsThought = thought;
+        }
         final oldText = _messages[itemId] ?? '';
         _messages[itemId] = '$oldText$text';
         if (oldText.isEmpty) {
@@ -451,7 +544,7 @@ class AcpKernel
             ItemUpserted(
               nextSeq,
               itemId,
-              update['sessionUpdate'] == 'agent_thought_chunk'
+              thought
                   ? ThinkingItem(text: '', tokens: 0, startedAt: DateTime.now())
                   : const AssistantTextItem(''),
               streaming: true,
@@ -475,11 +568,41 @@ class AcpKernel
         if (usage != null) emit(UsageReported(nextSeq, usage));
       case 'tool_call':
       case 'tool_call_update':
+        // A non-assistant entry ends the open stream (Zed AcpThread).
+        _closeAssistantStream();
         _toolUpdate(update);
+        _todosFromTool(update);
+      // ACP v1 sends `plan` with top-level `entries`. Draft v2 sends
+      // `plan_update` with those entries nested under `plan`. `todo_update`
+      // is not in the spec; keep it so older agents still surface a list.
+      case 'plan':
+      case 'plan_update':
       case 'todo_update':
-        _todosUpdate(update['todos'] ?? update['items'] ?? update['todoItems']);
+        _todosUpdate(_planEntries(update));
       case 'user_message_chunk':
-        break;
+        final content =
+            (update['content'] as Map?)?.cast<String, Object?>() ?? const {};
+        final text = content['text'];
+        if (text is! String || text.isEmpty) return;
+        // User content ends the open assistant stream.
+        _closeAssistantStream();
+        if (_replaying || _turnId == null || _replayTurnId != null) {
+          _beginReplayTurn();
+        }
+        final turnId = _turnId ?? 'acp_user';
+        final rawId = update['messageId'] as String?;
+        final itemId = rawId != null && rawId.isNotEmpty
+            ? 'acp_user_${turnId}_$rawId'
+            : 'acp_user_${turnId}_${++_replaySeq}';
+        final oldText = _messages[itemId] ?? '';
+        _messages[itemId] = '$oldText$text';
+        emit(
+          ItemUpserted(
+            nextSeq,
+            itemId,
+            UserMessageItem(text: _messages[itemId]!),
+          ),
+        );
       case 'session_end':
       case 'prompt_complete':
       case 'turn_complete':
@@ -541,11 +664,11 @@ class AcpKernel
     if (value.contains('grep') || value.contains('search')) {
       return ToolKind.search;
     }
+    if (value.contains('todo')) return ToolKind.todo;
     if (value.contains('edit') || value.contains('write')) return ToolKind.edit;
     if (value.contains('command') || value.contains('shell')) {
       return ToolKind.command;
     }
-    if (value.contains('todo')) return ToolKind.todo;
     if (value.contains('agent')) return ToolKind.agent;
     return ToolKind.other;
   }
@@ -553,11 +676,12 @@ class AcpKernel
   String? _toolDetail(Map<String, Object?> update) {
     final content = update['content'];
     if (content is List) {
-      return content
+      final text = content
           .whereType<Map>()
-          .map((item) => item['text'] ?? item['content'])
+          .map(_contentText)
           .whereType<String>()
           .join();
+      if (text.isNotEmpty) return text;
     }
     final raw = update['rawInput'] ?? update['raw_input'] ?? update['input'];
     return raw is String
@@ -565,6 +689,60 @@ class AcpKernel
         : raw == null
         ? null
         : '$raw';
+  }
+
+  /// ACP content blocks nest the text: `{type, content: {type, text}}`.
+  /// Some agents put it on the block itself.
+  String? _contentText(Map item) {
+    final nested = item['content'];
+    if (nested is Map) {
+      final text = nested['text'];
+      if (text is String && text.isNotEmpty) return text;
+    }
+    final text = item['text'];
+    return text is String && text.isNotEmpty ? text : null;
+  }
+
+  Map? _jsonMap(Object? raw) {
+    if (raw is Map) return raw;
+    if (raw is! String) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  // Some agents only expose todos in tool arguments, including history
+  // replay. Papercode wraps those arguments in rawInput as a JSON string.
+  void _todosFromTool(Map<String, Object?> update) {
+    final input = _jsonMap(
+      update['rawInput'] ?? update['raw_input'] ?? update['input'],
+    );
+    final name = (input?['name'] ?? update['toolName'] ?? update['title'])
+        ?.toString()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z]'), '');
+    final id = (update['toolCallId'] ?? update['id'])?.toString();
+    final isTodo =
+        name == 'todowrite' ||
+        name == 'functionstodowrite' ||
+        (id != null && _todoToolIds.contains(id));
+    if (isTodo && id != null) _todoToolIds.add(id);
+    if (isTodo && update['sessionUpdate'] == 'tool_call') {
+      final args = _jsonMap(input?['arguments'] ?? input?['args']) ?? input;
+      _todosUpdate(args?['todos']);
+    }
+    if (update['sessionUpdate'] != 'tool_call_update' ||
+        update['status'] == 'failed') {
+      return;
+    }
+    final output = _jsonMap(update['rawOutput'] ?? update['raw_output']);
+    final result =
+        _jsonMap(output?['content']) ?? output ?? _jsonMap(_toolDetail(update));
+    if (result == null || result['ok'] == false) return;
+    if (isTodo || result['ok'] == true) _todosUpdate(result['todos']);
   }
 
   ContextUsage? _contextUsage(Map<String, Object?> update) {
@@ -595,27 +773,84 @@ class AcpKernel
     return ContextUsage(window: window, used: used);
   }
 
+  Object? _planEntries(Map<String, Object?> update) {
+    // ACP v1: top-level entries. v2 draft: nested under plan. Some agents
+    // use items/todos, or send plan as the list itself.
+    final plan = update['plan'];
+    if (plan is List) return plan;
+    if (plan is Map) {
+      return plan['entries'] ??
+          plan['items'] ??
+          plan['todos'] ??
+          plan['steps'] ??
+          plan['tasks'];
+    }
+    return update['entries'] ??
+        update['todos'] ??
+        update['items'] ??
+        update['todoItems'] ??
+        update['steps'] ??
+        update['tasks'];
+  }
+
+  String? _todoContent(Map item) {
+    for (final key in const [
+      'content',
+      'title',
+      'text',
+      'description',
+      'name',
+      'task',
+      'step',
+      'summary',
+    ]) {
+      final value = item[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
+  }
+
   void _todosUpdate(Object? raw) {
     if (raw is! List) return;
     final todos = <TodoEntry>[];
     for (final item in raw) {
+      if (item is String) {
+        final text = item.trim();
+        if (text.isEmpty) continue;
+        todos.add(TodoEntry(text, TodoStatus.pending));
+        continue;
+      }
       if (item is! Map) continue;
-      final content = item['content'] ?? item['title'] ?? item['text'];
-      if (content is! String || content.trim().isEmpty) continue;
-      final status = switch (item['status']?.toString()) {
-        'completed' || 'done' => TodoStatus.completed,
-        'in_progress' || 'in-progress' || 'active' => TodoStatus.inProgress,
+      final content = _todoContent(item);
+      if (content == null) continue;
+      // Spec: pending / in_progress / completed. Accept common aliases and
+      // case variants from agents. v2 cancelled stays open (no cancelled UI).
+      final status = switch (item['status']
+          ?.toString()
+          .trim()
+          .toLowerCase()
+          .replaceAll('-', '_')) {
+        'completed' || 'done' || 'complete' || 'success' || 'succeeded' =>
+          TodoStatus.completed,
+        'in_progress' ||
+        'inprogress' ||
+        'active' ||
+        'running' ||
+        'working' ||
+        'current' =>
+          TodoStatus.inProgress,
         _ => TodoStatus.pending,
       };
       todos.add(
         TodoEntry(
-          content.trim(),
+          content,
           status,
           activeForm:
               item['activeForm'] as String? ?? item['active_form'] as String?,
         ),
       );
     }
+    // Spec: each plan update replaces the whole list, including emptying it.
     emit(TodosReported(nextSeq, todos));
   }
 
@@ -628,6 +863,7 @@ class AcpKernel
     emit(TurnEnded(nextSeq, turn, interrupted: interrupted, worked: worked));
     _turnId = null;
     _turnStarted = null;
+    _closeAssistantStream();
   }
 
   void _fail(Object error) {
@@ -650,6 +886,10 @@ class AcpKernel
     _sessionId = null;
     _initialized = false;
     _starting = false;
+    _turnCount = 0;
+    _closeAssistantStream();
+    _messages.clear();
+    _todoToolIds.clear();
     _health = KernelHealth.idle;
     prepare();
   }

@@ -13,6 +13,7 @@ import 'package:baocode/ide/ide_explorer.dart';
 import 'package:baocode/ide/ide_list.dart';
 import 'package:baocode/kernel/agent_kernel.dart';
 import 'package:baocode/theme/app_theme.dart';
+import 'package:baocode/theme/codicons.dart';
 import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart'
@@ -155,7 +156,9 @@ void main() {
     );
   });
 
-  testWidgets('a workspace with no folders asks for one', (tester) async {
+  testWidgets('a workspace with no folders still lists its own folder', (
+    tester,
+  ) async {
     var added = 0;
     await _pump(
       tester,
@@ -163,8 +166,12 @@ void main() {
       roots: const [],
       onAddFolder: () => added++,
     );
-    expect(_inList('This workspace has no folders yet.'), findsOneWidget);
-    await tester.tap(_inList('Add Folder to Workspace…'));
+    expect(_inList('This workspace has no folders yet.'), findsNothing);
+    expect(
+      find.descendant(of: _list, matching: find.byType(IdeExplorer)),
+      findsOneWidget,
+    );
+    await tester.tap(find.byIcon(Codicons.rootFolder));
     expect(added, 1);
   });
 

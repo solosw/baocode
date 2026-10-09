@@ -50,11 +50,21 @@ final class TurnEnded extends KernelEvent {
 /// Adds the item [id], or replaces it. A [streaming] item is still being
 /// written (see [TextDelta], [ItemCompleted]).
 final class ItemUpserted extends KernelEvent {
-  const ItemUpserted(super.seq, this.id, this.item, {this.streaming = false});
+  const ItemUpserted(
+    super.seq,
+    this.id,
+    this.item, {
+    this.streaming = false,
+    this.before,
+  });
 
   final String id;
   final ChatItem item;
   final bool streaming;
+
+  /// Insert a new item just before the item with this id, when that item
+  /// is already in the transcript. Ignored once [id] itself is there.
+  final String? before;
 }
 
 /// [text] at [offset] of a streaming text or thought: the part already
