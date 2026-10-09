@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../kernel/acp/acp_kernel.dart';
 import '../kernel/agent_kernel.dart';
 import '../kernel/kernel_event.dart';
 import '../kernel/kernel_registry.dart';
@@ -281,16 +282,19 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
   bool get kernelLocked =>
       _transcript.length > 0 || kernelContext.resume != null;
 
-  late final List<KernelOption> _kernelOptions = [
-    for (final descriptor in kernels) descriptor.option,
-  ];
-
   /// Null once locked, or with nothing to choose from.
   KernelChoice? get kernelChoice {
     if (kernelLocked || kernels.length < 2) return null;
+    final options = [
+      for (final descriptor in kernels) descriptor.option,
+    ];
+    final selected = options.cast<KernelOption?>().firstWhere(
+      (option) => option?.id == kernel.id,
+      orElse: () => options.first,
+    );
     return KernelChoice(
-      options: _kernelOptions,
-      selected: _kernelOptions[kernels.indexOf(kernel)],
+      options: options,
+      selected: selected ?? options.first,
       onSelected: (option) =>
           setKernel(kernels.firstWhere((k) => k.id == option.id)),
     );
@@ -304,6 +308,8 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
       changes: [for (final edit in _transcript.edits) edit.change],
     );
     _connect(descriptor);
+    // Reload modes, slash commands, and context usage for the new agent.
+    if (_views > 0) _kernel.prepare();
     notifyListeners();
   }
 
@@ -789,6 +795,14 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
       return;
     }
     if (message.isEmpty || !canSend) return;
+    if (_kernel is AcpKernel && message.text.trim().startsWith('/')) {
+      final parts = message.text.trim().split(RegExp(r'\s+'));
+      (_kernel as AcpKernel).runCommand(
+        parts.first.substring(1),
+        parts.length > 1 ? parts.skip(1).join(' ') : '',
+      );
+      return;
+    }
     final turn = KernelTurn(
       id: newTurnId(),
       text: message.text.trim(),

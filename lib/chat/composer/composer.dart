@@ -734,6 +734,15 @@ class ChatComposerState extends State<ChatComposer>
     final trigger = _trigger;
     if (trigger == null || index >= _matches.length) return;
     final suggestion = _matches[index].suggestion;
+    if (suggestion.kind == SuggestionKind.command && widget.onSubmit == null) {
+      final command = '/${suggestion.value}';
+      _closeMenu();
+      _controller.clear();
+      _saveDraft();
+      widget.session.send(ComposerMessage(text: command));
+      _focusNode.requestFocus();
+      return;
+    }
     final caret = _controller.selection.baseOffset;
     // Space first, then the token before it, so the token is never the last
     // thing on its line (see [_padTrailingTokens]).

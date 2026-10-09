@@ -8,6 +8,7 @@ import '../keybindings/keybindings_editing.dart';
 import '../keybindings/keybindings_sync.dart';
 import '../keybindings/keymap.dart';
 import '../keybindings/vscode_import.dart';
+import '../kernel/acp_agents.dart';
 import '../models/model_providers.dart';
 import '../theme/workbench_theme.dart' show WorkbenchThemeService;
 import '../tips/builtin_tips.dart';
@@ -15,6 +16,7 @@ import '../tips/feature_tip.dart';
 import '../tips/feature_tips_controller.dart';
 import '../update/update_controller.dart';
 import 'app_locale.dart';
+import 'pages/agents_page.dart';
 import 'pages/appearance_page.dart';
 import 'pages/data_dir_page.dart';
 import 'pages/general_page.dart';
@@ -34,17 +36,23 @@ class AppSettings {
     required this.locale,
     KeybindingService? keybindings,
     this.files,
+    AcpAgents? acpAgents,
     this.catalog,
     this.sync,
     this.installs,
     this.updates,
-  }) : keybindings = keybindings ?? KeybindingService.instance;
+  }) : keybindings = keybindings ?? KeybindingService.instance,
+       _providedAcpAgents = acpAgents;
 
   final AppLocale locale;
   final KeybindingService keybindings;
 
   /// The settings files in the data directory; none under test.
   final SettingsFiles? files;
+  late final AcpAgents acpAgents =
+      _providedAcpAgents ??
+      AcpAgents(files?.settings ?? SettingsFiles.instance.settings);
+  final AcpAgents? _providedAcpAgents;
 
   /// The keymaps to pick from.
   final KeymapCatalog? catalog;
@@ -106,6 +114,8 @@ class AppSettings {
         );
       case SettingsSection.models:
         return ModelsSettingsPage(providers: ModelProviders.current);
+      case SettingsSection.agents:
+        return AgentsSettingsPage(agents: acpAgents);
       case SettingsSection.notifications:
         return NotificationsSettingsPage(settings: files?.settings);
       case SettingsSection.language:

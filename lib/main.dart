@@ -23,8 +23,10 @@ import 'ide/terminal/terminal_instance.dart';
 import 'icons/emoji_sheet.dart';
 import 'icons/icon_library.dart';
 import 'icons/icon_storage.dart';
+import 'kernel/acp_agents.dart';
 import 'kernel/claude_code/process_transport.dart';
 import 'kernel/commit_attribution.dart';
+import 'kernel/kernel_registry.dart';
 import 'keybindings/keybindings_sync.dart';
 import 'keybindings/keymap.dart';
 import 'keybindings/vscode_import.dart';
@@ -110,6 +112,14 @@ Future<void> main(List<String> arguments) async {
     );
   }
   final locale = AppLocale(storage: files?.argv);
+  AcpAgents? acpAgents;
+  if (files != null) {
+    acpAgents = AcpAgents(files.settings);
+    KernelRegistry.use([
+      KernelRegistry.claudeCode,
+      for (final agent in acpAgents.agents) KernelRegistry.acp(agent),
+    ]);
+  }
   final workspace = Workspace(
     preferences: PreferenceStore.file(),
     // Beside state.json: written as the user types.
@@ -124,6 +134,13 @@ Future<void> main(List<String> arguments) async {
     l10n: () =>
         lookupAppLocalizations(locale.locale ?? AppLocale.systemLocale()),
   )..load();
+  acpAgents?.addListener(() {
+    KernelRegistry.use([
+      KernelRegistry.claudeCode,
+      for (final agent in acpAgents!.agents) KernelRegistry.acp(agent),
+    ]);
+    workspace.refreshKernels(KernelRegistry.all);
+  });
   // The first frame is in the kept theme, restored from storage as VS Code
   // does before the workbench shows; its file is read after. The setting
   // is settings.json's `workbench.colorTheme`, the theme's colors the
@@ -195,6 +212,7 @@ Future<void> main(List<String> arguments) async {
     settings = AppSettings(
       locale: locale,
       files: files,
+      acpAgents: acpAgents,
       catalog: catalog,
       sync: sync,
       installs: VsCodeInstalls.current(),

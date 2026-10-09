@@ -257,7 +257,9 @@ class _InteractionPanelState extends State<InteractionPanel>
       _textFocus.requestFocus();
       return;
     }
-    if (!_current.multiple) _advance();
+    // Selecting an option only changes the pending selection. The explicit
+    // Submit button (or Enter) sends the answer to the agent.
+    _focusNode.requestFocus();
   }
 
   void _advance() {

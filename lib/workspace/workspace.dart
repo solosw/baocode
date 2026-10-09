@@ -219,7 +219,7 @@ class Workspace extends ChangeNotifier implements ColorThemeStorage {
   }) : _projects = [...projects],
        icons = icons ?? IconLibrary(),
        l10n = l10n ?? (() => englishLocalizations),
-       kernels = kernels ?? KernelRegistry.all,
+       _kernels = [...(kernels ?? KernelRegistry.all)],
        _preferredKernel = (kernels ?? KernelRegistry.all).first,
        _store = preferences,
        _draftStore = drafts {
@@ -229,7 +229,18 @@ class Workspace extends ChangeNotifier implements ColorThemeStorage {
   }
 
   /// The kernels new agents may run on.
-  final List<KernelDescriptor> kernels;
+  List<KernelDescriptor> get kernels => List.unmodifiable(_kernels);
+  final List<KernelDescriptor> _kernels;
+
+  /// Replaces the choices for newly created agents. Existing sessions keep
+  /// their descriptor and are not interrupted.
+  void refreshKernels(List<KernelDescriptor> descriptors) {
+    if (descriptors.isEmpty) return;
+    _kernels
+      ..clear()
+      ..addAll(descriptors);
+    notifyListeners();
+  }
 
   /// Titles a new agent after its first message (images alone are titled
   /// after their file, see [agentImageTitle]); without it, the first
