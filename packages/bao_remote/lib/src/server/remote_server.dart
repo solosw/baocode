@@ -209,11 +209,13 @@ class RemoteServer {
       final output = await runGit(
         (args['arguments'] as List).cast<String>(),
         workingDirectory: args['cwd'] as String,
+        limit: args['limit'] as int?,
       );
       return {
         'exitCode': output.exitCode,
         'stdout': output.stdout,
         'stderr': output.stderr,
+        if (output.truncated) 'truncated': true,
       };
     };
     handlers[RemoteProtocol.gitWatch] = (params, _) => _streams.open(
@@ -328,6 +330,8 @@ class RemoteServer {
     ];
     handlers[RemoteProtocol.claudeRead] = (params, _) =>
         ClaudeSessions.read(paramsOf(params)['path'] as String);
+    handlers[RemoteProtocol.claudeGoal] = (params, _) =>
+        _sessions.goal(paramsOf(params)['id'] as String);
     handlers[RemoteProtocol.claudeDelete] = (params, _) async {
       await _sessions.delete(paramsOf(params)['id'] as String);
       return null;
