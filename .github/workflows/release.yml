@@ -293,17 +293,9 @@ jobs:
           # host of that platform connects.
           cp dist/remote/*.gz out/
           find out -type f -printf '%f\n' | sort
-      - name: Sign the release into latest.json
-        env:
-          SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+      - name: Write latest.json
         run: |
-          if [ -z "$SIGNING_KEY" ]; then
-            echo "::error::UPDATE_SIGNING_KEY is not set; the app cannot verify a GitHub update without it"
-            exit 1
-          fi
           flutter pub get
-          key="$RUNNER_TEMP/update-signing.key"
-          echo "$SIGNING_KEY" > "$key"
           notes=()
           for language in en zh; do
             file="release-notes/$MARKETING.$language.md"
@@ -311,7 +303,7 @@ jobs:
               notes+=(--notes-$language "$file")
             fi
           done
-          BAOCODE_UPDATE_SIGNING_KEY="$key" dart run tool/release_manifest.dart \
+          dart run tool/release_manifest.dart \
             --version "$VERSION" \
             --windows out/BaoCode-$MARKETING-setup.exe \
             --macos-arm64 out/BaoCode-$MARKETING-mac-arm64.zip \
@@ -320,7 +312,6 @@ jobs:
             --dmg-x64 out/BaoCode-$MARKETING-x64.dmg \
             --manifest out/latest.json \
             "${notes[@]}"
-          rm "$key"
       - name: Make the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

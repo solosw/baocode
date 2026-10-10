@@ -69,7 +69,7 @@ class UpdateAsset {
     required this.url,
     required this.size,
     required this.sha256,
-    required this.signature,
+    this.signature,
   });
 
   final Uri url;
@@ -80,8 +80,8 @@ class UpdateAsset {
   /// The file's SHA-256, lowercase hex.
   final String sha256;
 
-  /// Ed25519 over [UpdateSignature.payload], base64.
-  final String signature;
+  /// Unused. Kept so an older manifest still parses. Releases are not signed.
+  final String? signature;
 
   /// The file's name, from [url].
   String get fileName =>
@@ -91,7 +91,7 @@ class UpdateAsset {
     'url': '$url',
     'size': size,
     'sha256': sha256,
-    'signature': signature,
+    if (signature != null) 'signature': signature,
   };
 }
 
@@ -238,23 +238,12 @@ class UpdateManifest {
       throw const UpdateManifestException('"sha256" is missing or wrong');
     }
     final signature = json['signature'];
-    if (signature is! String || _base64Length(signature) != 64) {
-      throw const UpdateManifestException('"signature" is missing or wrong');
-    }
     return UpdateAsset(
       url: url,
       size: size,
       sha256: sha.toLowerCase(),
-      signature: signature,
+      signature: signature is String ? signature : null,
     );
-  }
-
-  static int? _base64Length(String text) {
-    try {
-      return base64.decode(text).length;
-    } on FormatException {
-      return null;
-    }
   }
 
   Map<String, Object?> toJson() => {

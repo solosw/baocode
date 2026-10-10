@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import 'package:baocode/update/update_io.dart';
 import 'package:baocode/update/update_manifest.dart';
 import 'package:baocode/update/update_service.dart';
-import 'package:baocode/update/update_signature.dart';
 import 'package:baocode/update/version.dart';
 
 /// A local server, in place of baocode.dev: what it serves by path, what it
@@ -78,20 +77,16 @@ void main() {
   late _Server server;
   late Directory directory;
   late IoUpdateBackend backend;
-  final seed = UpdateSignature.generateSeed();
-  final publicKey = UpdateSignature.publicKeyOf(seed);
   final bytes = Uint8List.fromList(
     List.generate(200 * 1024, (i) => Random(i).nextInt(256)),
   );
 
-  /// [bytes] as the release of [version] for windows-x64, signed with
-  /// [signWith] (the test key).
+  /// [bytes] as the release of [version] for windows-x64.
   UpdateRelease release({
     String version = '1.2.0+12',
     Uint8List? data,
     int? size,
     String? sha256,
-    String? signWith,
     String platform = 'windows-x64',
   }) {
     final content = data ?? bytes;
@@ -101,15 +96,6 @@ void main() {
       url: server.url('BaoCode-setup.exe'),
       size: length,
       sha256: digest,
-      signature: UpdateSignature.sign(
-        payload: UpdateSignature.payload(
-          version: version,
-          platform: platform,
-          size: length,
-          sha256: digest,
-        ),
-        seed: signWith ?? seed,
-      ),
     );
     return UpdateRelease(
       manifest: UpdateManifest(
@@ -128,7 +114,6 @@ void main() {
     directory = await Directory.systemTemp.createTemp('baocode-updates');
     backend = IoUpdateBackend(
       directory: directory.path,
-      publicKey: publicKey,
       timeout: const Duration(seconds: 5),
     );
   });
@@ -193,18 +178,9 @@ void main() {
       expect(files(), isEmpty, reason: 'the bad download is gone');
     });
 
-    test('refuses a download signed with another key', () async {
-      await expectLater(
-        backend.download(release(signWith: UpdateSignature.generateSeed())),
-        throwsA(
-          isA<UpdateVerificationException>().having(
-            (e) => e.message,
-            'message',
-            contains('not signed'),
-          ),
-        ),
-      );
-      expect(files(), isEmpty);
+    test('a signature is not required', () async {
+      final path = await backend.download(release());
+      expect(await File(path).readAsBytes(), bytes);
     });
 
     test('refuses a download of another size', () async {
@@ -226,18 +202,15 @@ void main() {
       expect(files(), isEmpty);
     });
 
-    test('a signature for another version does not pass', () async {
-      // Signed as 1.1.0, offered as 1.2.0: a downgrade.
-      final real = release(version: '1.1.0');
-      final passedOff = UpdateRelease(
-        manifest: UpdateManifest(version: AppVersion.parse('1.2.0')),
-        platform: 'windows-x64',
-        asset: real.asset,
+    test('another version with the same file is still the file', () async {
+      final path = await backend.download(
+        UpdateRelease(
+          manifest: UpdateManifest(version: AppVersion.parse('1.2.0')),
+          platform: 'windows-x64',
+          asset: release(version: '1.1.0').asset,
+        ),
       );
-      await expectLater(
-        backend.download(passedOff),
-        throwsA(isA<UpdateVerificationException>()),
-      );
+      expect(await File(path).readAsBytes(), bytes);
     });
 
     test('picks up where a download stopped', () async {

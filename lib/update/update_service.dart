@@ -30,8 +30,8 @@ abstract interface class UpdateBackend {
   /// The manifest's text at [url]. Throws when it cannot be had.
   Future<String> fetchManifest(Uri url);
 
-  /// Downloads [release] (or finds it downloaded), checks its size,
-  /// SHA-256 and signature, and gives the file's path. Throws an
+  /// Downloads [release] (or finds it downloaded), checks its size and
+  /// SHA-256, and gives the file's path. Throws an
   /// [UpdateVerificationException] when a check fails, the file gone.
   Future<String> download(
     UpdateRelease release, {

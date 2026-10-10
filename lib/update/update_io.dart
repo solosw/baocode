@@ -8,20 +8,17 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'update_service.dart';
-import 'update_signature.dart';
 import 'version.dart';
 
 /// The manifest over HTTPS, and the downloads in the data folder's
 /// `updates/`: a folder per version, `<version>/<file>`, only the newest
 /// kept. A download is written to `<file>.part` and picks up where it
-/// stopped; renamed to `<file>` once its size, SHA-256 and signature check
-/// out.
+/// stopped; renamed to `<file>` once its size and SHA-256 check out.
 class IoUpdateBackend implements UpdateBackend {
   IoUpdateBackend({
     required this.directory,
     HttpClient Function()? client,
     this.userAgent = 'BaoCode',
-    this.publicKey = updatePublicKey,
     this.timeout = const Duration(seconds: 30),
   }) : _client = client ?? HttpClient.new;
 
@@ -29,9 +26,6 @@ class IoUpdateBackend implements UpdateBackend {
   final String directory;
 
   final String userAgent;
-
-  /// What releases are signed with (base64), as [UpdateSignature] checks.
-  final String publicKey;
 
   /// For connecting, and for a response that stops sending.
   final Duration timeout;
@@ -119,17 +113,6 @@ class IoUpdateBackend implements UpdateBackend {
     if ('$digest' != asset.sha256) {
       return 'The download does not match its SHA-256';
     }
-    final signed = UpdateSignature.verify(
-      payload: UpdateSignature.payload(
-        version: '${release.version}',
-        platform: release.platform,
-        size: asset.size,
-        sha256: asset.sha256,
-      ),
-      signature: asset.signature,
-      publicKey: publicKey,
-    );
-    if (!signed) return 'The download is not signed by BaoCode';
     return null;
   }
 

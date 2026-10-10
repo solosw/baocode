@@ -16,9 +16,10 @@
 //   dart run tool/release_manifest.dart --generate-key <file>
 //   dart run tool/release_manifest.dart --public-key
 //
-// The private key is a file holding 32 random bytes, base64; its path is
-// in BAOCODE_UPDATE_SIGNING_KEY. Never in the repository: whoever has it
-// can make every installed BaoCode run their program.
+// The private key is optional. When BAOCODE_UPDATE_SIGNING_KEY is set and
+// matches the app's public key, each platform entry is signed. Otherwise
+// latest.json has url, size and sha256 only; the app does not require a
+// signature.
 //
 // The version is pubspec.yaml's unless given. A manifest already there for
 // the same version keeps the other platforms' entries, so the Windows and the
@@ -75,20 +76,15 @@ Future<void> main(List<String> arguments) async {
     return;
   }
   if (options['generate-key'] case final path?) return _generateKey(path);
-  final seed = _readKey();
-  final publicKey = UpdateSignature.publicKeyOf(seed);
   if (options.containsKey('public-key')) {
-    stdout.writeln(publicKey);
+    final seed = _readKey();
+    if (seed == null) {
+      _fail('\$$_keyVariable is not set: it is the private key file\'s path.');
+    }
+    stdout.writeln(UpdateSignature.publicKeyOf(seed));
     return;
   }
-  if (publicKey != updatePublicKey) {
-    _fail(
-      'The key in \$$_keyVariable is not the one the app checks against.\n'
-      '  its public key:   $publicKey\n'
-      '  the app expects:  $updatePublicKey (lib/update/update_signature.dart)\n'
-      'Releases signed with it would be refused by every installed BaoCode.',
-    );
-  }
+  final seed = _signingSeed(_readKey());
 
   final root = File.fromUri(Platform.script).parent.parent.absolute;
   final version = AppVersion.parse(
@@ -149,8 +145,11 @@ Future<void> main(List<String> arguments) async {
       size: size,
       sha256: sha256,
     );
-    final signature = UpdateSignature.sign(payload: payload, seed: seed);
-    if (!UpdateSignature.verify(payload: payload, signature: signature)) {
+    final signature = seed == null
+        ? null
+        : UpdateSignature.sign(payload: payload, seed: seed);
+    if (signature != null &&
+        !UpdateSignature.verify(payload: payload, signature: signature)) {
       _fail('The signature does not check out against the app\'s key.');
     }
     final name = file.uri.pathSegments.last;
@@ -244,11 +243,9 @@ void _generateKey(String path) {
     ..writeln('  ${UpdateSignature.publicKeyOf(seed)}');
 }
 
-String _readKey() {
+String? _readKey() {
   final path = Platform.environment[_keyVariable];
-  if (path == null || path.isEmpty) {
-    _fail('\$$_keyVariable is not set: it is the private key file\'s path.');
-  }
+  if (path == null || path.isEmpty) return null;
   final file = File(path);
   if (!file.existsSync()) _fail('No key at $path (\$$_keyVariable).');
   final seed = file.readAsStringSync().trim();
@@ -258,6 +255,17 @@ String _readKey() {
     // Below.
   }
   _fail('$path does not hold a key (32 bytes, base64).');
+}
+
+/// [seed] when it is the app's key; otherwise the manifest is unsigned.
+String? _signingSeed(String? seed) {
+  if (seed == null) return null;
+  if (UpdateSignature.publicKeyOf(seed) == updatePublicKey) return seed;
+  stdout.writeln(
+    'Ignoring \$$_keyVariable: it is not the app\'s key. '
+    'latest.json will not be signed.',
+  );
+  return null;
 }
 
 String _pubspecVersion(File pubspec) {

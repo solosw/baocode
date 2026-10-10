@@ -140,6 +140,19 @@ void main() {
       expect(() => manifest.assetFor('windows-x64'), _invalid('size'));
     });
 
+    test('a download needs no signature', () {
+      final asset = {
+        'url':
+            'https://github.com/solosw/baocode/releases/download/v1.0.6/a.exe',
+        'size': 1000,
+        'sha256': 'a' * 64,
+      };
+      final manifest = UpdateManifest.parse(
+        _manifest(platforms: {'windows-x64': asset}),
+      );
+      expect(manifest.assetFor('windows-x64')!.signature, isNull);
+    });
+
     test('a field missing or wrong in a download is refused', () {
       UpdateManifest entry(Map<String, Object?> asset) =>
           UpdateManifest.parse(_manifest(platforms: {'windows-x64': asset}));
@@ -148,8 +161,6 @@ void main() {
         (_asset(size: '1000'), 'size'),
         (_asset(sha256: 'abc'), 'sha256'),
         (_asset(sha256: 'g' * 64), 'sha256'),
-        (_asset(signature: 'not base64!'), 'signature'),
-        (_asset(signature: base64.encode([1, 2, 3])), 'signature'),
         ({..._asset()}..remove('url'), 'url'),
       ]) {
         expect(
