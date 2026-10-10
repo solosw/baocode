@@ -20,6 +20,7 @@ enum SettingsSection {
   models,
   agents,
   ssh,
+  network,
   notifications,
   language,
   keyboard,
@@ -35,6 +36,7 @@ enum SettingsCategory {
     SettingsSection.models,
     SettingsSection.agents,
     SettingsSection.ssh,
+    SettingsSection.network,
     SettingsSection.notifications,
     SettingsSection.language,
     SettingsSection.keyboard,
@@ -122,6 +124,7 @@ class SettingsDialogState extends State<SettingsDialog> {
     SettingsSection.models => Codicons.sparkle,
     SettingsSection.agents => Codicons.hubot,
     SettingsSection.ssh => Codicons.remote,
+    SettingsSection.network => Codicons.radioTower,
     SettingsSection.notifications => Codicons.bell,
     SettingsSection.language => Codicons.globe,
     SettingsSection.keyboard => Codicons.keyboard,
@@ -145,6 +148,7 @@ class SettingsDialogState extends State<SettingsDialog> {
       SettingsSection.models => l10n.settingsSectionModels,
       SettingsSection.agents => 'Agents',
       SettingsSection.ssh => l10n.settingsSectionSsh,
+      SettingsSection.network => l10n.settingsSectionNetwork,
       SettingsSection.notifications => l10n.settingsSectionNotifications,
       SettingsSection.language => l10n.settingsSectionLanguage,
       SettingsSection.keyboard => l10n.settingsSectionKeyboard,
@@ -158,6 +162,7 @@ class SettingsDialogState extends State<SettingsDialog> {
       switch (section) {
         SettingsSection.appearance => context.l10n.settingsAppearanceKeywords,
         SettingsSection.ssh => context.l10n.sshSettingsKeywords,
+        SettingsSection.network => context.l10n.settingsNetworkKeywords,
         _ => '',
       };
 

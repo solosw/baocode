@@ -23,6 +23,7 @@ import 'pages/general_page.dart';
 import 'pages/keybindings_page.dart';
 import 'pages/models_page.dart';
 import 'pages/language_page.dart';
+import 'pages/network_page.dart';
 import 'pages/notifications_page.dart';
 import 'pages/ssh_hosts_page.dart';
 import 'pages/updates_page.dart';
@@ -120,6 +121,8 @@ class AppSettings {
         return AgentsSettingsPage(agents: acpAgents);
       case SettingsSection.ssh:
         return SshHostsSettingsPage(hosts: SshHostSettings.instance);
+      case SettingsSection.network:
+        return NetworkSettingsPage(settings: files?.settings);
       case SettingsSection.notifications:
         return NotificationsSettingsPage(settings: files?.settings);
       case SettingsSection.language:
