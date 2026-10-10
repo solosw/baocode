@@ -283,6 +283,9 @@ jobs:
             cp dist/macos/BaoCode-$MARKETING-$arch.dmg dist/macos/BaoCode-$MARKETING-mac-$arch.zip out/
           done
           cp dist/windows/BaoCode-$MARKETING-setup.exe out/
+          # The remote server builds the app downloads the first time a
+          # host of that platform connects.
+          cp dist/remote/*.gz out/
           find out -type f -printf '%f\n' | sort
       - name: Make the GitHub release
         env:
@@ -299,4 +302,8 @@ jobs:
             out/BaoCode-$MARKETING-x64.dmg \
             out/BaoCode-$MARKETING-mac-arm64.zip \
             out/BaoCode-$MARKETING-mac-x64.zip \
-            out/BaoCode-$MARKETING-setup.exe
+            out/BaoCode-$MARKETING-setup.exe \
+            out/baocode-server-linux-x64.gz \
+            out/baocode-server-linux-arm64.gz \
+            out/baocode-server-darwin-x64.gz \
+            out/baocode-server-darwin-arm64.gz

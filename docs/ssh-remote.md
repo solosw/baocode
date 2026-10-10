@@ -343,7 +343,7 @@ dart run tool/build_remote_server.dart --all        # 四份没编全就失败�
 - macOS 版是 `dart compile exe` 自带的 ad hoc 签名（linker-signed），Apple silicon 上能直接运行；经 ssh 的 stdin 写进去的文件没有隔离属性（quarantine），Gatekeeper 不拦，不需要 Developer ID 签名和公证。
 - `VERSION` 的哈希覆盖这次编出来的所有二进制。
 
-另外还会生成每份 gzip 后的 `baocode-server-<平台>.gz`（约 3.1–3.3 MB，原文件约 8 MB），以及 `servers.json`：按平台名写明每个 `.gz` 的下载地址 `https://dl.baocode.dev/releases/remote/<VERSION>/<文件>`、大小和 SHA-256。没编的平台不写进去。旧格式的 `servers.json`（键只有架构 `x64`、`arm64`）按 Linux 读。
+另外还会生成每份 gzip 后的 `baocode-server-<平台>.gz`（约 3.1–3.3 MB，原文件约 8 MB），以及 `servers.json`：按平台名写明每个 `.gz` 的下载地址 `https://github.com/solosw/baocode/releases/download/v<营销版本>/baocode-server-<平台>.gz`、大小和 SHA-256。没编的平台不写进去。旧格式的 `servers.json`（键只有架构 `x64`、`arm64`）按 Linux 读。
 
 ### 9.2 应用在哪里找服务端
 
@@ -366,8 +366,15 @@ dart run tool/build_remote_server.dart --all        # 四份没编全就失败�
 安装包**不带服务端二进制**，只带 `VERSION` 和 `servers.json`。四个二进制原本占 30 多 MB，大多数用户不连远程，而每台主机只需要其中一个平台。
 
 - **打包**：`tool/build_macos.dart` 和 `tool/build_windows.dart` 先编译到 `build/remote/`（CI 里由单独的 `remote` 任务在 macOS 机器上把四份都编一次，在那台 Mac 上直接跑一遍两份 macOS 版（`tool/test_remote_server_macos.sh`，Intel 版经 Rosetta），再由 `remote-linux` 任务在 Docker 里的几个 Linux 发行版上各跑一遍 `tool/test_remote_server.sh`，两个打包脚本带 `--remote-built` 直接用它），再只把 `VERSION`、`servers.json` 放进 `BaoCode.app/Contents/Resources/remote/`（Windows 是 `<bundle>\remote\`），`.gz` 放到 `build/installers/remote/<VERSION>/`。
-- **发布**：把 `build/installers/remote/<VERSION>/` 里的 `.gz` 上传到 `https://dl.baocode.dev/releases/remote/<VERSION>/`。**要在安装包发出去之前上传**，否则这个版本连不了远程（CI 会按这个顺序传，见 docs/release.md）。旧版本的目录要一直保留，因为装着旧版的用户还要下载。
+- **发布**：Release 工作流把 `baocode-server-<平台>.gz` 和安装包一起上传到 `https://github.com/solosw/baocode/releases/download/v<营销版本>/`。`servers.json` 里的地址指向这里。重新发布同一个版本标签会替换这些文件；已经装过这个构建的主机不会再下载。
 - **下载**：第一次连某个平台的主机时，应用下载对应的 `.gz`，按 `servers.json` 校验大小和 SHA-256，存到数据目录的 `cache/remote-server/<VERSION>/`，之后照旧经 ssh 推送到主机（第 4 节第 4 步）。远端主机不需要能上网。下载完会删掉其他版本的缓存；同时连多台同平台的主机只下载一次。
+- **下载失败时手动安装**：报错详情里有完整地址。从 [GitHub Releases](https://github.com/solosw/baocode/releases) 下载对应的 `baocode-server-<平台>.gz`（Linux x64 是 `baocode-server-linux-x64.gz`），解压后放到本机数据目录的 `cache/remote-server/<VERSION>/baocode-server-<平台>.gz`。`<VERSION>` 是应用里 `remote/VERSION` 的内容（带构建哈希，不是只有 `1.0.4`）。macOS 数据目录默认是 `~/Library/Application Support/BaoCode`。也可以直接在远端放好可执行文件，应用发现已存在就不会再下载或上传：
+
+  ```sh
+  mkdir -p ~/.baocode-server/<VERSION>
+  gunzip -c baocode-server-linux-x64.gz > ~/.baocode-server/<VERSION>/baocode-server
+  chmod 755 ~/.baocode-server/<VERSION>/baocode-server
+  ```
 - **安全**：`servers.json` 在安装包里，跟着应用一起签名，所以下载到的只能是这个版本编出来的那份；被替换的文件校验不过，连接报 `server` 失败。
 - 下载失败或校验不过，连接失败，报错里带着下载地址；下次连接重试。
 
@@ -423,7 +430,7 @@ flutter analyze
 
 | 现象 / 报错 | 原因 | 处理 |
 | --- | --- | --- |
-| The BaoCode server for Linux x64（或 macOS arm64 等）could not be downloaded（详情里是 HTTP 404） | 这个构建的服务端没有上传到 dl.baocode.dev。常见于本机打包的应用：每次构建的 `VERSION` 都不同，CI 发布的那份对不上 | 把打包时 `build/installers/remote/<VERSION>/` 里的 `.gz` 上传到 `dl.baocode.dev/releases/remote/<VERSION>/`；只在本机用的话，也可以把它们放进数据目录的 `cache/remote-server/<VERSION>/`。或者改装 CI 发布的版本 |
+| The BaoCode server for Linux x64（或 macOS arm64 等）could not be downloaded（详情里是 HTTP 404） | 这个构建的服务端没有上传到 GitHub Release。常见于本机打包的应用：`servers.json` 里的地址对不上已发布的文件 | 从 https://github.com/solosw/baocode/releases 下载对应的 `baocode-server-<平台>.gz`，放到数据目录的 `cache/remote-server/<VERSION>/`（`<VERSION>` 见应用里的 `remote/VERSION`）。或者在远端手动安装，见 9.3 |
 | No ssh here | 本机没有 `ssh` | 安装 OpenSSH 客户端；Windows 上在“可选功能”里安装 |
 | 认证失败（authentication） | 密码不对、取消了登录，或密钥没加载（Windows 上不问密码） | 重连时重新输入密码；用密钥的话，把密钥加到 ssh-agent，或在 `~/.ssh/config` 里写 `IdentityFile` |
 | 主机密钥问题（hostKey） | 主机还不在 `known_hosts` 里，或密钥变了 | 先在终端里 `ssh <主机>` 一次，接受密钥；密钥确实换过的话，用 `ssh-keygen -R <主机>` 删掉旧记录 |

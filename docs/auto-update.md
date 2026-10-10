@@ -245,9 +245,9 @@ https://dl.baocode.dev/
       BaoCode-1.2.0-arm64.dmg           ← macOS 首次安装（应用不读取）
       BaoCode-1.2.0-x64.dmg
     remote/
-      <VERSION>/                        ← 远程服务端，应用连远程主机时按需下载
-        baocode-server-linux-x64.gz        （见 docs/ssh-remote.md 第 9.3 节；
-        baocode-server-linux-arm64.gz       旧版本的目录要一直保留）
+      <VERSION>/                        ← 旧版应用仍从这里下载远程服务端
+        baocode-server-linux-x64.gz        （新版本改从 GitHub Release 下载，
+        baocode-server-linux-arm64.gz       见 docs/ssh-remote.md 第 9.3 节）
 ```
 
 下载页 `https://baocode.dev/download` 在官网上（`site/`），应用无法自己更新时会打开它。

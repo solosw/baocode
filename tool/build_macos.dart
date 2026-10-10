@@ -256,7 +256,7 @@ Future<void> main(List<String> arguments) async {
     ..writeln('Upload the remote server\'s builds, which the app downloads:')
     ..writeln(
       '  ${downloads.path}/*  ->  '
-      'https://dl.baocode.dev/releases/remote/$remoteVersion/',
+      'https://github.com/solosw/baocode/releases/download/v${version.marketing}/',
     )
     ..writeln()
     ..writeln('To publish it as an update, sign the zips into the manifest:')

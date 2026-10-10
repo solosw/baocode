@@ -37,8 +37,9 @@ import 'package:crypto/crypto.dart';
 
 const _platforms = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
 
-/// Where the gzipped builds are downloaded from: `<base>/<VERSION>/<file>`.
-const _downloadsBase = 'https://dl.baocode.dev/releases/remote';
+/// Where the gzipped builds are downloaded from: a GitHub Release asset
+/// named `baocode-server-<platform>.gz` on `v<marketing>`.
+const _downloadsBase = 'https://github.com/solosw/baocode/releases/download';
 
 Future<void> main(List<String> arguments) async {
   final root = File.fromUri(Platform.script).parent.parent.absolute;
@@ -116,8 +117,9 @@ Future<void> main(List<String> arguments) async {
     final bytes = GZipCodec(level: 9)
         .encode(File('${out.path}/baocode-server-$platform').readAsBytesSync());
     File('${out.path}/$file').writeAsBytesSync(bytes);
+    final marketing = version.split('+').first;
     files[platform] = {
-      'url': '$_downloadsBase/$name/$file',
+      'url': '$_downloadsBase/v$marketing/$file',
       'size': bytes.length,
       'sha256': '${sha256.convert(bytes)}',
     };
