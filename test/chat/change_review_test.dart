@@ -271,6 +271,44 @@ void main() {
     ]);
   }, skip: !hasGit);
 
+  test(
+    'a workspace lists a change in an added folder, not only its own',
+    () async {
+      final added = p.join(p.dirname(root), 'added');
+      final addedCheckpoints = p.join(
+        p.dirname(checkpoints),
+        'added-checkpoints',
+      );
+      Directory(added).createSync();
+      File(p.join(added, 'note.txt')).writeAsStringSync('old\n');
+      final own = (await GitReviewStore.open(root, checkpoints: checkpoints))!;
+      final folder = (await GitReviewStore.open(
+        added,
+        checkpoints: addedCheckpoints,
+      ))!;
+      final review = WorkspaceChangeReview.of([
+        ChangeReview(own),
+        ChangeReview(folder),
+      ]);
+      addTearDown(review.dispose);
+
+      await review.begin();
+      write('a.txt', 'one\n');
+      File(p.join(added, 'note.txt')).writeAsStringSync('new\n');
+      await review.observe();
+
+      expect(
+        review.changes.map((change) => change.path),
+        unorderedEquals([path('a.txt'), p.join(added, 'note.txt')]),
+      );
+
+      await review.undo([p.join(added, 'note.txt')]);
+      expect(review.changes.map((change) => change.path), [path('a.txt')]);
+      expect(File(p.join(added, 'note.txt')).readAsStringSync(), 'old\n');
+    },
+    skip: !hasGit,
+  );
+
   test("leaves the project's own repository alone", () async {
     Future<String> git(List<String> arguments) async {
       final result = await Process.run(

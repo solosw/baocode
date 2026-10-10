@@ -395,11 +395,15 @@ class IdeGitDecorations {
 
 final _posix = p.style == p.Style.posix;
 
+/// A remote repository's paths are POSIX (`/sessions/...`) even on Windows.
+bool _posixPaths(String root) => _posix || root.startsWith('/');
+
 /// [p.dirname] of a status's path (normalized, absolute): on POSIX without
 /// package:path's parsing, which its tens of thousands of paths, each
-/// walked up, would make a frame's work.
+/// walked up, would make a frame's work. A leading `/` is POSIX even when
+/// this machine is Windows.
 String ideGitDirname(String path) {
-  if (_posix && !path.endsWith('/')) {
+  if (_posixPaths(path) && !path.endsWith('/')) {
     final slash = path.lastIndexOf('/');
     if (slash > 0) return path.substring(0, slash);
   }
@@ -407,13 +411,13 @@ String ideGitDirname(String path) {
 }
 
 /// [p.basename] of a status's path, as [ideGitDirname].
-String ideGitBasename(String path) => _posix && !path.endsWith('/')
+String ideGitBasename(String path) => _posixPaths(path) && !path.endsWith('/')
     ? path.substring(path.lastIndexOf('/') + 1)
     : p.basename(path);
 
 /// [p.isWithin] for a status's paths under [root], as [ideGitDirname].
 bool ideGitIsWithin(String root, String path) {
-  if (_posix) {
+  if (_posixPaths(root)) {
     final prefix = root.endsWith('/') ? root : '$root/';
     if (path.length > prefix.length && path.startsWith(prefix)) return true;
   }
@@ -443,15 +447,18 @@ IdeGitState parseGitStatus(
   }
 
   // Git's paths are relative, `/`-separated and normalized but for an
-  // ignored folder's trailing slash: on POSIX, joined as they are.
-  final posix = p.style == p.Style.posix && p.isAbsolute(root);
+  // ignored folder's trailing slash. A remote root starts with `/` even
+  // on Windows, and must stay `/sessions/a.dart`, not `\sessions\a.dart`.
+  final posix = _posixPaths(root);
   final prefix = root.endsWith('/') ? root : '$root/';
   String absolute(String relative) {
     if (posix) {
       final end = relative.endsWith('/')
           ? relative.length - 1
           : relative.length;
-      return end == 0 ? p.normalize(root) : prefix + relative.substring(0, end);
+      return end == 0
+          ? p.posix.normalize(root)
+          : prefix + relative.substring(0, end);
     }
     return p.normalize(p.join(root, p.joinAll(relative.split('/'))));
   }

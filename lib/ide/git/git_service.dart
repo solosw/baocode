@@ -50,12 +50,22 @@ class IdeGitCommitChange {
 /// Git for the repository containing [root]; [runner] and [watcher]
 /// replace running `git` and watching the files (for tests).
 class IdeGitService {
-  IdeGitService(String root, {IdeGitRunner? runner, IdeGitWatcher? watcher})
-    : root = p.normalize(root),
-      _run = runner ?? platform.runGit,
-      _watch = watcher ?? platform.watchRepository;
+  IdeGitService(
+    String root, {
+    IdeGitRunner? runner,
+    IdeGitWatcher? watcher,
+    p.Context? paths,
+  }) : root = (paths ?? p.context).normalize(root),
+       _paths = paths ?? p.context,
+       _run = runner ?? platform.runGit,
+       _watch = watcher ?? platform.watchRepository;
 
   final String root;
+
+  /// How the repository spells paths. A remote host's is POSIX even when
+  /// this machine is Windows: `package:path` would turn `/sessions/a.dart`
+  /// into `\sessions\a.dart`, and the file would not open.
+  final p.Context _paths;
   final IdeGitRunner _run;
   final IdeGitWatcher _watch;
   String? _repositoryRoot;
@@ -88,7 +98,7 @@ class IdeGitService {
     if (output.exitCode != 0) return null;
     final top = output.stdout.trim();
     if (top.isEmpty) return null;
-    return _repositoryRoot = p.normalize(top);
+    return _repositoryRoot = _paths.normalize(top);
   }
 
   /// Whether [root] is a working tree's top level, not a folder in one
@@ -119,7 +129,8 @@ class IdeGitService {
   }
 
   List<String> _relative(String top, Iterable<String> paths) => [
-    for (final path in paths) p.relative(path, from: top).replaceAll(r'\', '/'),
+    for (final path in paths)
+      _paths.relative(path, from: top).replaceAll(r'\', '/'),
   ];
 
   /// [paths] relative to [top], or the whole tree (`.`) for none: long

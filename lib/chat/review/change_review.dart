@@ -70,6 +70,26 @@ class ChangeReview extends ChangeNotifier {
     return resume(store, session);
   }
 
+  /// One review over every folder a workspace's agent works in: the
+  /// workspace's own directory and each folder added to it. A change in
+  /// any of them is listed, kept and undone together. A folder that cannot
+  /// be snapshotted is left out; null only when none of them can.
+  static Future<ChangeReview?> openAll(
+    Iterable<String> roots, {
+    String? session,
+  }) async {
+    final reviews = <ChangeReview>[];
+    for (final root in {...roots}) {
+      final review = await open(root, session: session);
+      if (review != null) reviews.add(review);
+    }
+    return switch (reviews) {
+      [] => null,
+      [final only] => only,
+      final many => WorkspaceChangeReview.of(many),
+    };
+  }
+
   /// The review over [store], with the changes [session] left pending.
   static Future<ChangeReview> resume(ReviewStore store, String session) async {
     final review = ChangeReview(store);
@@ -480,6 +500,147 @@ class ChangeReview extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     working = false;
+    super.dispose();
+  }
+}
+
+/// A store that is never asked anything: a workspace review only forwards
+/// to the reviews of its folders.
+class _EmptyReviewStore implements ReviewStore {
+  _EmptyReviewStore(this.root);
+
+  @override
+  final String root;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('${invocation.memberName}');
+}
+
+/// The reviews of a workspace's folders as one: a change in any folder is
+/// listed, kept and undone with the others. [reviews] are owned here and
+/// disposed with it. The first is the workspace's own directory.
+class WorkspaceChangeReview extends ChangeReview {
+  WorkspaceChangeReview.of(List<ChangeReview> reviews)
+    : this._(_EmptyReviewStore(reviews.first.root), reviews);
+
+  WorkspaceChangeReview._(super._store, List<ChangeReview> reviews)
+    : _reviews = List.unmodifiable(reviews) {
+    for (final review in _reviews) {
+      review.addListener(notifyListeners);
+    }
+  }
+
+  final List<ChangeReview> _reviews;
+
+  /// The one whose project [path] is in. A folder added to the workspace
+  /// wins over the workspace's own directory when a path is in both.
+  ChangeReview _of(String path) {
+    ChangeReview? own;
+    for (final review in _reviews) {
+      if (review._relative(path) == null) continue;
+      if (!identical(review, _reviews.first)) return review;
+      own = review;
+    }
+    return own ?? _reviews.first;
+  }
+
+  @override
+  List<FileChange> get changes => [
+    for (final review in _reviews) ...review.changes,
+  ];
+
+  @override
+  String? get failure {
+    final failed = [
+      for (final review in _reviews)
+        if (review.failure case final failure?) failure,
+    ];
+    if (failed.length == _reviews.length) return failed.first;
+    return null;
+  }
+
+  @override
+  String? get session => _reviews.first.session;
+
+  @override
+  set session(String? id) {
+    for (final review in _reviews) {
+      review.session = id;
+    }
+  }
+
+  @override
+  set working(bool working) {
+    for (final review in _reviews) {
+      review.working = working;
+    }
+  }
+
+  @override
+  Future<void> begin() =>
+      Future.wait([for (final review in _reviews) review.begin()]);
+
+  @override
+  Future<void> observe({bool full = true}) =>
+      Future.wait([for (final review in _reviews) review.observe(full: full)]);
+
+  @override
+  void report(FileChange change) => _of(change.path).report(change);
+
+  @override
+  Future<void> keep(Iterable<String> paths) async {
+    final byReview = <ChangeReview, List<String>>{};
+    for (final path in paths) {
+      byReview.putIfAbsent(_of(path), () => []).add(path);
+    }
+    await Future.wait([
+      for (final MapEntry(key: review, value: own) in byReview.entries)
+        review.keep(own),
+    ]);
+  }
+
+  @override
+  Future<void> keepAll() =>
+      Future.wait([for (final review in _reviews) review.keepAll()]);
+
+  @override
+  Future<void> undo(Iterable<String> paths) async {
+    final byReview = <ChangeReview, List<String>>{};
+    for (final path in paths) {
+      byReview.putIfAbsent(_of(path), () => []).add(path);
+    }
+    await Future.wait([
+      for (final MapEntry(key: review, value: own) in byReview.entries)
+        review.undo(own),
+    ]);
+  }
+
+  @override
+  Future<void> undoAll() =>
+      Future.wait([for (final review in _reviews) review.undoAll()]);
+
+  @override
+  Future<String> Function()? original(String path) => _of(path).original(path);
+
+  @override
+  Future<void> discard() =>
+      Future.wait([for (final review in _reviews) review.discard()]);
+
+  @override
+  void abandon(String reason) {
+    for (final review in _reviews) {
+      review.abandon(reason);
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final review in _reviews) {
+      review
+        ..removeListener(notifyListeners)
+        ..dispose();
+    }
     super.dispose();
   }
 }

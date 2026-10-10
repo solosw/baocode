@@ -27,6 +27,23 @@ IdeGitCommit _commit(
 
 void main() {
   group('status', () {
+    test('a remote POSIX root stays slash-separated on any machine', () {
+      const root = '/sessions';
+      final state = parseGitStatus(
+        root,
+        '## main\x00'
+        ' M lib/main.dart\x00'
+        '?? notes/todo.md\x00',
+      );
+      expect(
+        [for (final resource in state.resources) resource.path],
+        ['/sessions/lib/main.dart', '/sessions/notes/todo.md'],
+      );
+      expect(ideGitDirname('/sessions/lib/main.dart'), '/sessions/lib');
+      expect(ideGitBasename('/sessions/lib/main.dart'), 'main.dart');
+      expect(ideGitIsWithin(root, '/sessions/lib/main.dart'), isTrue);
+    });
+
     test('groups resources as VS Code does', () {
       final state = parseGitStatus(
         _root,

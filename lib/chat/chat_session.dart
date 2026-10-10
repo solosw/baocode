@@ -183,15 +183,22 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
   };
 
   /// Opens the review of the project, the first time; and snapshots it,
-  /// so that the first message need not wait.
+  /// so that the first message need not wait. A workspace's folders are
+  /// snapshotted with its own directory: an agent there edits those, not
+  /// the empty folder it starts in.
   void _startReview() {
     if (_reviewOpening != null) return;
     final open = _openReview;
     final root = kernelContext.cwd;
     if (open == null || root == null) return;
-    _reviewOpening = open(root, session: kernelContext.resume?.id).then((
-      review,
-    ) {
+    final folders = kernelContext.workspace?.call()?.folders ?? const [];
+    final openReview = folders.isEmpty
+        ? open(root, session: kernelContext.resume?.id)
+        : ChangeReview.openAll([
+            root,
+            ...folders,
+          ], session: kernelContext.resume?.id);
+    _reviewOpening = openReview.then((review) {
       if (review == null) return null;
       if (_disposed) {
         review.dispose();

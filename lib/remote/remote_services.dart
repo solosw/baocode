@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:bao_remote/client.dart';
 import 'package:bao_remote/terminal.dart' show generateShellIntegrationNonce;
+import 'package:path/path.dart' as p;
 
 import '../ide/file_service.dart';
 import '../ide/git/git_service.dart';
@@ -156,6 +157,7 @@ class RemoteIdeFileService implements IdeHostFiles {
 /// The Git of the project at [root] on [host]: its commands run there.
 IdeGitService remoteGitService(SshHost host, String root) => IdeGitService(
   root,
+  paths: p.posix,
   runner: (arguments, {required workingDirectory, limit}) async =>
       (await host.ready).git(arguments, cwd: workingDirectory, limit: limit),
   watcher: (repository) => resilientStream(
