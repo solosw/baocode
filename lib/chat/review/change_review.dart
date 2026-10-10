@@ -73,16 +73,21 @@ class ChangeReview extends ChangeNotifier {
   /// One review over every folder a workspace's agent works in: the
   /// workspace's own directory and each folder added to it. A change in
   /// any of them is listed, kept and undone together. A folder that cannot
-  /// be snapshotted is left out; null only when none of them can.
+  /// be snapshotted is left out; null only when none of them can. Folders
+  /// are opened together: one that never returns does not hold the rest
+  /// (and the message waiting on this) forever.
   static Future<ChangeReview?> openAll(
     Iterable<String> roots, {
     String? session,
   }) async {
-    final reviews = <ChangeReview>[];
-    for (final root in {...roots}) {
-      final review = await open(root, session: session);
-      if (review != null) reviews.add(review);
-    }
+    final opened = await Future.wait([
+      for (final root in {...roots})
+        open(root, session: session).timeout(
+          const Duration(seconds: 20),
+          onTimeout: () => null,
+        ),
+    ]);
+    final reviews = [for (final review in opened) ?review];
     return switch (reviews) {
       [] => null,
       [final only] => only,

@@ -192,13 +192,25 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
     final root = kernelContext.cwd;
     if (open == null || root == null) return;
     final folders = kernelContext.workspace?.call()?.folders ?? const [];
-    final openReview = folders.isEmpty
+    final Future<ChangeReview?> openReview = folders.isEmpty
         ? open(root, session: kernelContext.resume?.id)
         : ChangeReview.openAll([
             root,
             ...folders,
           ], session: kernelContext.resume?.id);
-    _reviewOpening = openReview.then((review) {
+    // A multi-folder open that never returns would keep every message
+    // forever; once timed out, later sends go without a review.
+    // Awaited here (not Future.timeout's onTimeout) so a test opener
+    // that returns a ChangeReview subtype still types as nullable.
+    _reviewOpening = () async {
+      ChangeReview? review;
+      try {
+        review = await openReview.timeout(const Duration(seconds: 30));
+      } on TimeoutException {
+        return null;
+      } on Object {
+        return null;
+      }
       if (review == null) return null;
       if (_disposed) {
         review.dispose();
@@ -210,7 +222,7 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
       unawaited(review.begin());
       notifyListeners();
       return review;
-    }, onError: (Object _) => null);
+    }();
   }
 
   void _reviewChanged() {

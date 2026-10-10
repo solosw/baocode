@@ -130,6 +130,41 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets(
+    'a message still goes when opening the review never returns',
+    (tester) async {
+      // As a multi-folder workspace can: one folder's store hangs, the
+      // open never completes. 1.0.7 only opened the empty workspace
+      // folder; openAll must not keep the composer forever.
+      final hang = Completer<ChangeReview?>();
+      final session = ChatSession(
+        kernel: MockKernels.claudeCode,
+        kernelContext: const KernelContext(cwd: '/p'),
+        historyCount: 0,
+        openReview: (root, {session}) => hang.future,
+      );
+      addTearDown(session.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          localizationsDelegates: const [FlutterQuillLocalizations.delegate],
+          home: ChatScreen(session: session),
+        ),
+      );
+      await tester.pump();
+
+      session.send(const ComposerMessage(text: 'hello'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(session.itemCount, 0);
+
+      await tester.pump(const Duration(seconds: 30));
+      expect(session.itemCount, greaterThan(0));
+      await finish(tester, session);
+      // Background mock work settles, as the other cases wait.
+      await tester.pump(const Duration(seconds: 5));
+    },
+  );
+
   testWidgets('while a turn runs, the project is scanned every few seconds', (
     tester,
   ) async {

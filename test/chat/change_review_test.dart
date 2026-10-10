@@ -271,6 +271,17 @@ void main() {
     ]);
   }, skip: !hasGit);
 
+  test('openAll skips a folder that never opens', () async {
+    // Under FLUTTER_TEST the store is unavailable, so each root opens as
+    // null at once. The per-folder timeout is what keeps a hang from
+    // blocking openAll in production.
+    final timed = ChangeReview.openAll(['/a', '/b']).timeout(
+      const Duration(seconds: 25),
+      onTimeout: () => throw StateError('openAll itself hung'),
+    );
+    expect(await timed, isNull);
+  });
+
   test(
     'a workspace lists a change in an added folder, not only its own',
     () async {
