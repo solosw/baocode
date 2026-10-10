@@ -40,6 +40,7 @@ void main() {
         ['/sessions/lib/main.dart', '/sessions/notes/todo.md'],
       );
       expect(ideGitDirname('/sessions/lib/main.dart'), '/sessions/lib');
+      expect(ideGitDirname('/sessions'), '/');
       expect(ideGitBasename('/sessions/lib/main.dart'), 'main.dart');
       expect(ideGitIsWithin(root, '/sessions/lib/main.dart'), isTrue);
     });

@@ -403,17 +403,25 @@ bool _posixPaths(String root) => _posix || root.startsWith('/');
 /// walked up, would make a frame's work. A leading `/` is POSIX even when
 /// this machine is Windows.
 String ideGitDirname(String path) {
-  if (_posixPaths(path) && !path.endsWith('/')) {
-    final slash = path.lastIndexOf('/');
+  if (_posixPaths(path)) {
+    if (path == '/') return path;
+    final end = path.endsWith('/') ? path.length - 1 : path.length;
+    final slash = path.lastIndexOf('/', end - 1);
     if (slash > 0) return path.substring(0, slash);
+    if (slash == 0) return '/';
   }
   return p.dirname(path);
 }
 
 /// [p.basename] of a status's path, as [ideGitDirname].
-String ideGitBasename(String path) => _posixPaths(path) && !path.endsWith('/')
-    ? path.substring(path.lastIndexOf('/') + 1)
-    : p.basename(path);
+String ideGitBasename(String path) {
+  if (_posixPaths(path)) {
+    final end = path.endsWith('/') ? path.length - 1 : path.length;
+    final slash = path.lastIndexOf('/', end - 1);
+    if (slash >= 0) return path.substring(slash + 1, end);
+  }
+  return p.basename(path);
+}
 
 /// [p.isWithin] for a status's paths under [root], as [ideGitDirname].
 bool ideGitIsWithin(String root, String path) {

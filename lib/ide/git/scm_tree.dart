@@ -59,7 +59,11 @@ List<IdeScmTreeNode> ideScmTree(
   final folders = <String, IdeScmTreeFolder>{root: top};
   IdeScmTreeFolder folderAt(String path) {
     if (folders[path] case final folder?) return folder;
-    final parent = folderAt(ideGitDirname(path));
+    final parentPath = ideGitDirname(path);
+    // A path package:path cannot walk (a remote `/sessions/...` read on
+    // Windows as `\sessions\...`) would recurse forever and blank the
+    // panel. Stop at the project's root.
+    final parent = parentPath == path ? top : folderAt(parentPath);
     final folder = IdeScmTreeFolder(path, ideGitBasename(path));
     parent.children.add(folder);
     return folders[path] = folder;

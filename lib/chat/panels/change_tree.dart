@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-
 import '../../ide/git/git_model.dart';
 import '../../ide/git/scm_tree.dart';
 import '../../ide/ide_hover.dart';
@@ -214,7 +212,9 @@ class _ChangeTreeState extends State<ChangeTree> {
     final collapsed = _collapsed.contains(folder.path);
     return IdeListRow(
       key: ValueKey('folder:${folder.path}'),
-      tooltip: p.relative(folder.path, from: widget.root),
+      tooltip: ideGitIsWithin(widget.root, folder.path)
+          ? folder.path.substring(widget.root.length + 1)
+          : folder.path,
       onTap: () => _toggle(folder.path),
       onContextMenu: (position) => _showMenu(position, row.changes),
       builder: (context, hovered) => Padding(
@@ -264,8 +264,8 @@ class _ChangeTreeState extends State<ChangeTree> {
         : change.shared
         ? l10n.stripChangeShared
         : null;
-    final relative = p.isWithin(widget.root, change.path)
-        ? p.relative(change.path, from: widget.root)
+    final relative = ideGitIsWithin(widget.root, change.path)
+        ? change.path.substring(widget.root.length + 1)
         : change.path;
     final open = widget.onOpen;
     return IdeListRow(
@@ -284,7 +284,7 @@ class _ChangeTreeState extends State<ChangeTree> {
             const SizedBox(width: 6),
             Expanded(
               child: IdeResourceLabel(
-                name: p.basename(change.path),
+                name: ideGitBasename(change.path),
                 strikeThrough: row.status.strikeThrough,
                 letter: row.status.letter,
                 letterColor: row.status.color,
