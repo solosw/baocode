@@ -140,7 +140,7 @@ void main() {
       expect(opened, [ManualUpdateRequired.downloadPage]);
       expect(
         '${ManualUpdateRequired.downloadPage}',
-        'https://baocode.dev/download',
+        'https://github.com/solosw/baocode/releases/latest',
       );
     });
 

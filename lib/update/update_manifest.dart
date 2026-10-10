@@ -4,16 +4,17 @@ import 'dart:convert';
 
 import 'version.dart';
 
-/// Where the app looks for its next version: the release manifest
-/// dl.baocode.dev serves (docs/auto-update.md has its format).
-const defaultManifestUrl = 'https://dl.baocode.dev/releases/latest.json';
+/// Where the app looks for its next version: the release manifest on the
+/// GitHub Release (`latest.json`).
+const defaultManifestUrl =
+    'https://github.com/solosw/baocode/releases/latest/download/latest.json';
 
 /// The environment variable that points the app at another manifest, to
 /// try a release before it is published (a local server's, say).
 const manifestUrlVariable = 'BAOCODE_UPDATE_URL';
 
 /// A manifest that cannot be used: not JSON, a field missing or wrong, a
-/// download not on baocode.dev.
+/// download not on an allowed host.
 class UpdateManifestException implements Exception {
   const UpdateManifestException(this.message);
 
@@ -40,6 +41,9 @@ class UpdateUrlPolicy {
 
   static const domain = 'baocode.dev';
 
+  /// Release assets (`github.com/.../releases/download/...`).
+  static const githubHosts = {'github.com', 'objects.githubusercontent.com'};
+
   final Set<String> extraOrigins;
 
   bool allows(Uri url) {
@@ -53,7 +57,9 @@ class UpdateUrlPolicy {
     return url.scheme == 'https' &&
         !url.hasPort &&
         url.userInfo.isEmpty &&
-        (host == domain || host.endsWith('.$domain'));
+        (host == domain ||
+            host.endsWith('.$domain') ||
+            githubHosts.contains(host));
   }
 }
 

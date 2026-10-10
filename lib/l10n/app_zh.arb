@@ -1669,7 +1669,7 @@
   "modelsAuxiliaryBuiltin": "Claude Code Haiku（本机配置）",
   "settingsSectionUpdates": "更新",
   "updatesSettingsTitle": "更新",
-  "updatesSettingsDescription": "BaoCode 会在 baocode.dev 上检查新版本。",
+  "updatesSettingsDescription": "BaoCode 会在 GitHub 上检查新版本。",
   "updateCurrentVersion": "当前版本",
   "updateLastChecked": "上次检查：{time}",
   "updateNeverChecked": "尚未检查",

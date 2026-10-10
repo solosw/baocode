@@ -2,7 +2,7 @@
 
 BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出问题怎么查，以及以后改代码时要注意什么。版本号怎么定、怎么发版、CI 和 Cloudflare 怎么配，见 [release.md](release.md)。
 
-- 更新服务器：`https://dl.baocode.dev`（Cloudflare R2；`baocode.dev/releases/*` 302 到这里）
+- 更新服务器：GitHub Release 的 `latest.json`（`https://github.com/solosw/baocode/releases/latest/download/latest.json`）。安装包链接也在同一个 Release 上。
 - 平台：macOS（Apple silicon 和 Intel 各一个包）、Windows（x64）
 - 代码：`lib/update/`，测试：`test/update/`，发布工具：`tool/release_manifest.dart`
 

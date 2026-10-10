@@ -270,9 +270,15 @@ jobs:
     permissions:
       contents: write
     env:
+      VERSION: ${{ needs.check.outputs.version }}
       MARKETING: ${{ needs.check.outputs.marketing }}
     steps:
       - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -287,6 +293,34 @@ jobs:
           # host of that platform connects.
           cp dist/remote/*.gz out/
           find out -type f -printf '%f\n' | sort
+      - name: Sign the release into latest.json
+        env:
+          SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::UPDATE_SIGNING_KEY is not set; the app cannot verify a GitHub update without it"
+            exit 1
+          fi
+          flutter pub get
+          key="$RUNNER_TEMP/update-signing.key"
+          echo "$SIGNING_KEY" > "$key"
+          notes=()
+          for language in en zh; do
+            file="release-notes/$MARKETING.$language.md"
+            if [ -f "$file" ]; then
+              notes+=(--notes-$language "$file")
+            fi
+          done
+          BAOCODE_UPDATE_SIGNING_KEY="$key" dart run tool/release_manifest.dart \
+            --version "$VERSION" \
+            --windows out/BaoCode-$MARKETING-setup.exe \
+            --macos-arm64 out/BaoCode-$MARKETING-mac-arm64.zip \
+            --macos-x64 out/BaoCode-$MARKETING-mac-x64.zip \
+            --dmg-arm64 out/BaoCode-$MARKETING-arm64.dmg \
+            --dmg-x64 out/BaoCode-$MARKETING-x64.dmg \
+            --manifest out/latest.json \
+            "${notes[@]}"
+          rm "$key"
       - name: Make the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -298,6 +332,7 @@ jobs:
           # started this run.
           gh release delete "v$MARKETING" --yes 2>/dev/null || true
           gh release create "v$MARKETING" --title "BaoCode $MARKETING" "${notes[@]}" \
+            out/latest.json \
             out/BaoCode-$MARKETING-arm64.dmg \
             out/BaoCode-$MARKETING-x64.dmg \
             out/BaoCode-$MARKETING-mac-arm64.zip \

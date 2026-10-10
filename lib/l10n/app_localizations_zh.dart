@@ -5704,7 +5704,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updatesSettingsTitle => '更新';
 
   @override
-  String get updatesSettingsDescription => 'BaoCode 会在 baocode.dev 上检查新版本。';
+  String get updatesSettingsDescription => 'BaoCode 会在 GitHub 上检查新版本。';
 
   @override
   String get updateCurrentVersion => '当前版本';

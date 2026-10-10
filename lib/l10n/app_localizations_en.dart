@@ -6078,7 +6078,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updatesSettingsDescription =>
-      'BaoCode looks for new versions on baocode.dev.';
+      'BaoCode looks for new versions on GitHub.';
 
   @override
   String get updateCurrentVersion => 'Current Version';

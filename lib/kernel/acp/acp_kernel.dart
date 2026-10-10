@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../chat/chat_models.dart';
+import '../../remote/remote_location.dart';
 import '../agent_kernel.dart';
 import '../kernel_event.dart';
 import '../kernel_types.dart';
@@ -28,6 +29,7 @@ class AcpKernel
   DateTime? _turnStarted;
   int _nextId = 0;
   int _turnCount = 0;
+
   /// Open agent text/thought stream (ACP/Zed merge target).
   String? _assistantItemId;
   String? _assistantMessageId;
@@ -113,12 +115,12 @@ class AcpKernel
       _closeAssistantStream();
       await _request('session/load', {
         'sessionId': resume.id,
-        'cwd': _context.cwd ?? resume.cwd,
+        'cwd': _agentCwd(_context.cwd ?? resume.cwd),
         'mcpServers': const <Object?>[],
       });
     } else {
       final session = await _request('session/new', {
-        'cwd': _context.cwd ?? '',
+        'cwd': _agentCwd(_context.cwd),
         'mcpServers': const <Object?>[],
       });
       _sessionId = session['sessionId'] as String?;
@@ -138,6 +140,13 @@ class AcpKernel
     if (_sessionId == null) {
       throw StateError('ACP session returned no sessionId');
     }
+  }
+
+  /// The directory the agent is told: a remote project's path on its host,
+  /// not the `ssh://` location the app uses.
+  static String _agentCwd(String? location) {
+    if (location == null || location.isEmpty) return '';
+    return RemoteLocation.pathOf(location);
   }
 
   @override
@@ -517,8 +526,7 @@ class AcpKernel
         final thought = update['sessionUpdate'] == 'agent_thought_chunk';
         // ACP v1 Message ID RFD: thoughts also use messageId (optional).
         final rawId = update['messageId'] as String?;
-        final messageId =
-            rawId != null && rawId.isNotEmpty ? rawId : null;
+        final messageId = rawId != null && rawId.isNotEmpty ? rawId : null;
         final merge =
             _assistantItemId != null &&
             _assistantIsThought == thought &&
@@ -830,15 +838,17 @@ class AcpKernel
           .trim()
           .toLowerCase()
           .replaceAll('-', '_')) {
-        'completed' || 'done' || 'complete' || 'success' || 'succeeded' =>
-          TodoStatus.completed,
+        'completed' ||
+        'done' ||
+        'complete' ||
+        'success' ||
+        'succeeded' => TodoStatus.completed,
         'in_progress' ||
         'inprogress' ||
         'active' ||
         'running' ||
         'working' ||
-        'current' =>
-          TodoStatus.inProgress,
+        'current' => TodoStatus.inProgress,
         _ => TodoStatus.pending,
       };
       todos.add(

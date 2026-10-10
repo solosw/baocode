@@ -1,5 +1,5 @@
+import '../../remote/remote_acp.dart';
 import 'acp_transport.dart';
-import 'acp_transport_io.dart';
 
 /// Configuration for one ACP agent executable.
 class AcpAgentConfig {
@@ -19,11 +19,13 @@ class AcpAgentConfig {
   final Map<String, String> environment;
   final String description;
 
+  /// On the project's host: this machine, or the remote one an `ssh://`
+  /// project names. Slash commands come from that process.
   AcpTransportFactory get transport =>
-      (context) => StdioAcpTransport.start(
+      (context) => startAcpAgent(
         command,
         arguments: arguments,
-        workingDirectory: context.cwd,
+        location: context.cwd,
         environment: environment.isEmpty ? null : environment,
       );
 }

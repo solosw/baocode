@@ -5,7 +5,7 @@ import '../agent_kernel.dart';
 /// The client side of an ACP agent connection.
 ///
 /// ACP transports carry JSON-RPC messages. Implementations may use stdio,
-/// sockets, or an in-process test transport.
+/// a remote process, or an in-process test transport.
 abstract interface class AcpTransport {
   Stream<Map<String, Object?>> get messages;
 

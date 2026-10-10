@@ -146,7 +146,10 @@ class _AgentSettingsRowState extends State<_AgentSettingsRow> {
       SettingsRow(label: 'Name', trailing: _field(_label, 'Agent name')),
       SettingsRow(
         label: 'Command',
-        trailing: _field(_command, 'Executable command'),
+        trailing: _field(
+          _command,
+          'Executable on the project machine',
+        ),
       ),
       SettingsRow(
         label: 'Arguments',
