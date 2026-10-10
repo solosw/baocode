@@ -162,6 +162,11 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
   /// The review of the changes, while it opens; null when there is none.
   Future<ChangeReview?>? _reviewOpening;
   ChangeReview? _review;
+  bool _reviewDisabled = false;
+
+  /// Opening every workspace folder and taking the baseline share one
+  /// budget: change tracking must not keep the composer waiting forever.
+  static const _reviewSendWait = Duration(seconds: 30);
 
   /// Messages wait on the snapshot before them, and go in order.
   Future<void> _sending = Future.value();
@@ -191,38 +196,56 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
     final open = _openReview;
     final root = kernelContext.cwd;
     if (open == null || root == null) return;
-    final folders = kernelContext.workspace?.call()?.folders ?? const [];
-    final Future<ChangeReview?> openReview = folders.isEmpty
-        ? open(root, session: kernelContext.resume?.id)
-        : ChangeReview.openAll([
-            root,
-            ...folders,
-          ], session: kernelContext.resume?.id);
-    // A multi-folder open that never returns would keep every message
-    // forever; once timed out, later sends go without a review.
-    // Awaited here (not Future.timeout's onTimeout) so a test opener
-    // that returns a ChangeReview subtype still types as nullable.
-    _reviewOpening = () async {
-      ChangeReview? review;
-      try {
-        review = await openReview.timeout(const Duration(seconds: 30));
-      } on TimeoutException {
-        return null;
-      } on Object {
-        return null;
-      }
+    // Keep ownership of a late result: Future.timeout does not cancel the
+    // opener, and a review arriving after a send must not take a baseline
+    // that already includes the agent's edits.
+    final opening = () async {
+      final folders = kernelContext.workspace?.call()?.folders ?? const [];
+      final review = folders.isEmpty
+          ? await open(root, session: kernelContext.resume?.id)
+          : await ChangeReview.openAll(
+              [root, ...folders],
+              session: kernelContext.resume?.id,
+              openReview: open,
+            );
       if (review == null) return null;
-      if (_disposed) {
+      if (_disposed || _reviewDisabled) {
         review.dispose();
         return null;
       }
       _review = review
         ..session = sessionId
         ..addListener(_reviewChanged);
-      unawaited(review.begin());
+      unawaited(
+        review.begin().catchError((Object error) {
+          _disableReview('$error');
+        }),
+      );
       notifyListeners();
       return review;
     }();
+    _reviewOpening = () async {
+      try {
+        return await opening;
+      } on Object catch (error) {
+        _disableReview('$error');
+        return null;
+      }
+    }();
+  }
+
+  void _disableReview(String reason) {
+    _reviewDisabled = true;
+    _review
+      ?..working = false
+      ..abandon(reason);
+  }
+
+  Future<void> _prepareReview(Future<ChangeReview?> opening) async {
+    final review = await opening;
+    if (review == null || _disposed || _reviewDisabled) return;
+    review.working = true;
+    await review.begin();
   }
 
   void _reviewChanged() {
@@ -231,7 +254,7 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
 
   void _reviewEvent(KernelEvent event) {
     final review = _review;
-    if (review == null) return;
+    if (review == null || _reviewDisabled) return;
     review.session = sessionId;
     switch (event) {
       case TurnStarted():
@@ -860,16 +883,14 @@ class ChatSession extends ChangeNotifier implements ChatFeed {
     // is snapshotted first, so that what the agent does is told apart.
     final snapshot = !isStreaming;
     _sending = _sending.then((_) async {
-      if (snapshot) {
-        final review = await opening;
-        if (review != null && !_disposed) {
-          review.working = true;
-          // Taken late, it would count some of the agent's work as what
-          // was there: the review gives way to what the kernel reports.
-          await review.begin().timeout(
-            const Duration(seconds: 30),
-            onTimeout: () => review.abandon('The snapshot took too long.'),
-          );
+      if (snapshot && !_disposed && !_reviewDisabled) {
+        try {
+          await _prepareReview(opening).timeout(_reviewSendWait);
+        } on Object catch (error) {
+          // A late baseline would include the agent's work. Give way to
+          // kernel-reported changes, and keep later messages moving even
+          // if opening or snapshotting threw instead of timing out.
+          _disableReview('$error');
         }
       }
       if (!_disposed) _kernel.send(turn);

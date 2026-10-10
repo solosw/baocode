@@ -79,13 +79,37 @@ class ChangeReview extends ChangeNotifier {
   static Future<ChangeReview?> openAll(
     Iterable<String> roots, {
     String? session,
+    Future<ChangeReview?> Function(String root, {String? session})? openReview,
   }) async {
+    final opener = openReview ?? open;
+    Future<ChangeReview?> openFolder(String root) async {
+      var expired = false;
+      try {
+        return await Future<ChangeReview?>.sync(
+              () => opener(root, session: session),
+            )
+            .then((review) {
+              if (expired) {
+                review?.dispose();
+                return null;
+              }
+              return review;
+            })
+            .timeout(
+              const Duration(seconds: 20),
+              onTimeout: () {
+                expired = true;
+                return null;
+              },
+            );
+      } on Object {
+        // An unavailable folder must not discard the other folders' reviews.
+        return null;
+      }
+    }
+
     final opened = await Future.wait([
-      for (final root in {...roots})
-        open(root, session: session).timeout(
-          const Duration(seconds: 20),
-          onTimeout: () => null,
-        ),
+      for (final root in {...roots}) openFolder(root),
     ]);
     final reviews = [for (final review in opened) ?review];
     return switch (reviews) {
@@ -230,6 +254,9 @@ class ChangeReview extends ChangeNotifier {
   Future<void> _look({required bool agent, List<String>? paths}) async {
     if (paths != null && paths.isEmpty) return;
     final next = await _store.snapshot(paths: paths);
+    // The send may already have given up waiting and started the agent.
+    // A snapshot finishing then is not a valid pre-turn baseline.
+    if (_disposed || _failure != null) return;
     final previous = _snapshot;
     _snapshot = next;
     if (previous != null) {
@@ -557,10 +584,7 @@ class WorkspaceChangeReview extends ChangeReview {
 
   @override
   String? get failure {
-    final failed = [
-      for (final review in _reviews)
-        if (review.failure case final failure?) failure,
-    ];
+    final failed = [for (final review in _reviews) ?review.failure];
     if (failed.length == _reviews.length) return failed.first;
     return null;
   }
@@ -583,12 +607,19 @@ class WorkspaceChangeReview extends ChangeReview {
   }
 
   @override
-  Future<void> begin() =>
-      Future.wait([for (final review in _reviews) review.begin()]);
+  Future<void> begin() async {
+    // Future.wait returns Future<List<void>>, even if exposed as Future<void>.
+    // Await it here so callers (notably timeout's void callback) really get
+    // a Future<void> at runtime, just as they do for a single-folder review.
+    await Future.wait([for (final review in _reviews) review.begin()]);
+  }
 
   @override
-  Future<void> observe({bool full = true}) =>
-      Future.wait([for (final review in _reviews) review.observe(full: full)]);
+  Future<void> observe({bool full = true}) async {
+    await Future.wait([
+      for (final review in _reviews) review.observe(full: full),
+    ]);
+  }
 
   @override
   void report(FileChange change) => _of(change.path).report(change);
@@ -606,8 +637,9 @@ class WorkspaceChangeReview extends ChangeReview {
   }
 
   @override
-  Future<void> keepAll() =>
-      Future.wait([for (final review in _reviews) review.keepAll()]);
+  Future<void> keepAll() async {
+    await Future.wait([for (final review in _reviews) review.keepAll()]);
+  }
 
   @override
   Future<void> undo(Iterable<String> paths) async {
@@ -622,15 +654,17 @@ class WorkspaceChangeReview extends ChangeReview {
   }
 
   @override
-  Future<void> undoAll() =>
-      Future.wait([for (final review in _reviews) review.undoAll()]);
+  Future<void> undoAll() async {
+    await Future.wait([for (final review in _reviews) review.undoAll()]);
+  }
 
   @override
   Future<String> Function()? original(String path) => _of(path).original(path);
 
   @override
-  Future<void> discard() =>
-      Future.wait([for (final review in _reviews) review.discard()]);
+  Future<void> discard() async {
+    await Future.wait([for (final review in _reviews) review.discard()]);
+  }
 
   @override
   void abandon(String reason) {

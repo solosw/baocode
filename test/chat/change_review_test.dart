@@ -1,13 +1,54 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:baocode/chat/chat_models.dart';
 import 'package:baocode/chat/review/change_review.dart';
+import 'package:baocode/chat/review/review_store.dart';
 import 'package:baocode/chat/review/review_store_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+
+/// No snapshots are taken while testing the folder opener.
+class _UnusedStore implements ReviewStore {
+  _UnusedStore(this.root);
+
+  @override
+  final String root;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _DelayedStore extends _UnusedStore {
+  _DelayedStore() : super('/delayed');
+
+  final pending = Completer<String>();
+  final calls = <String>[];
+
+  @override
+  Future<String> snapshot({Iterable<String>? paths}) {
+    calls.add('snapshot');
+    return pending.future;
+  }
+
+  @override
+  Future<void> forget(String session) async => calls.add('forget');
+}
+
+class _OpeningReview extends ChangeReview {
+  _OpeningReview(String root) : super(_UnusedStore(root));
+
+  bool disposed = false;
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
+  }
+}
 
 /// Runs local Git (no network) on a project in a temporary folder, its
 /// snapshots in another.
@@ -271,15 +312,71 @@ void main() {
     ]);
   }, skip: !hasGit);
 
-  test('openAll skips a folder that never opens', () async {
-    // Under FLUTTER_TEST the store is unavailable, so each root opens as
-    // null at once. The per-folder timeout is what keeps a hang from
-    // blocking openAll in production.
-    final timed = ChangeReview.openAll(['/a', '/b']).timeout(
-      const Duration(seconds: 25),
-      onTimeout: () => throw StateError('openAll itself hung'),
-    );
-    expect(await timed, isNull);
+  testWidgets(
+    'openAll isolates failed and hung folders and disposes late opens',
+    (tester) async {
+      final good = _OpeningReview('/good');
+      final late = _OpeningReview('/hung');
+      addTearDown(good.dispose);
+      final hang = Completer<ChangeReview?>();
+      final calls = <String>[];
+      final opening = ChangeReview.openAll(
+        ['/hung', '/throws', '/rejects', '/good', '/good'],
+        session: 'session-1',
+        openReview: (root, {session}) {
+          calls.add(root);
+          expect(session, 'session-1');
+          return switch (root) {
+            '/hung' => hang.future,
+            '/throws' => throw StateError('cannot open'),
+            '/rejects' => Future.error(StateError('cannot resume')),
+            _ => Future.value(good),
+          };
+        },
+      );
+      await tester.pump();
+      // All distinct roots open at once, even though the first is hung.
+      expect(calls, ['/hung', '/throws', '/rejects', '/good']);
+      await tester.pump(const Duration(seconds: 20));
+      expect(await opening, same(good));
+      expect(good.disposed, isFalse);
+
+      hang.complete(late);
+      await tester.pump();
+      expect(late.disposed, isTrue);
+    },
+  );
+
+  testWidgets('an abandoned review does not persist a late baseline', (
+    tester,
+  ) async {
+    final store = _DelayedStore();
+    final review = ChangeReview(store)..session = 'session-1';
+    addTearDown(review.dispose);
+    final beginning = review.begin();
+    await tester.pump();
+    expect(store.calls, ['snapshot']);
+
+    review.abandon('send wait expired');
+    store.pending.complete('late-tree');
+    await tester.pump();
+    await beginning;
+    expect(store.calls, ['snapshot']);
+    expect(review.changes, isEmpty);
+  });
+
+  testWidgets('openAll handles an error arriving after its timeout', (
+    tester,
+  ) async {
+    final hang = Completer<ChangeReview?>();
+    final opening = ChangeReview.openAll([
+      '/hung',
+    ], openReview: (root, {session}) => hang.future);
+    await tester.pump(const Duration(seconds: 20));
+    expect(await opening, isNull);
+    hang.completeError(StateError('late open failure'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 
   test(
@@ -303,19 +400,37 @@ void main() {
       ]);
       addTearDown(review.dispose);
 
-      await review.begin();
+      void timedOut() => fail('workspace review operation timed out');
+      Future<void> checked(Future<void> operation) =>
+          operation.timeout(const Duration(seconds: 30), onTimeout: timedOut);
+
+      review.session = 'workspace-session';
+      await checked(review.begin());
       write('a.txt', 'one\n');
       File(p.join(added, 'note.txt')).writeAsStringSync('new\n');
-      await review.observe();
+      await checked(review.observe());
 
       expect(
         review.changes.map((change) => change.path),
         unorderedEquals([path('a.txt'), p.join(added, 'note.txt')]),
       );
 
-      await review.undo([p.join(added, 'note.txt')]);
+      await checked(review.undo([p.join(added, 'note.txt')]));
       expect(review.changes.map((change) => change.path), [path('a.txt')]);
       expect(File(p.join(added, 'note.txt')).readAsStringSync(), 'old\n');
+      expect(review.failure, isNull);
+
+      await checked(review.undoAll());
+      expect(read('a.txt'), '1\n2\n3\n4\n5\n');
+      expect(review.changes, isEmpty);
+
+      write('a.txt', 'kept\n');
+      await checked(review.observe());
+      await checked(review.keepAll());
+      expect(read('a.txt'), 'kept\n');
+      expect(review.changes, isEmpty);
+      await checked(review.discard());
+      expect(review.failure, isNull);
     },
     skip: !hasGit,
   );
